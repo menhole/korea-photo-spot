@@ -13,34 +13,49 @@
   <div class="auth-area"><span id="authStatus" class="auth-status">로그인 전</span><button id="authOpen" class="button ghost">로그인</button><button id="logoutBtn" class="button ghost hidden">로그아웃</button></div>
 </header>
 <main class="shell">
-  <section class="intro"><div><p class="eyebrow">YOUR PRIVATE PHOTO JOURNAL</p><h1>나만의 사진 지도를<br>만들어 보세요.</h1><p class="intro-copy">가고 싶은 곳을 모으고, 다녀온 순간을 사진 일기로 남겨요.</p></div><div class="intro-chip">🔒 내 계정 전용 공간</div></section>
+  <section class="intro"><div><p class="eyebrow">MY TRAVEL BUCKET LIST</p><h1>언젠가 떠날 여행을<br>하나씩 채워 보세요.</h1><p class="intro-copy">생각을 적고, 가고 싶은 곳을 모으고, 여행 날짜를 계획해요.</p></div><div class="intro-chip">🔒 내 계정 전용 공간</div></section>
+  <section id="homeView" class="home-notes">
+    <div class="section-heading"><div><p class="eyebrow">MY NOTES</p><h2>나의 노트</h2><p class="muted">떠오르는 생각이나 여행 아이디어를 자유롭게 적어 두세요.</p></div><button class="button primary" id="addNoteBtn">+ 노트 작성</button></div>
+    <div class="note-compose panel"><textarea id="quickNote" rows="3" maxlength="3000" placeholder="오늘은 어떤 곳에 가고 싶나요? 기억하고 싶은 생각을 적어 보세요."></textarea><div class="note-compose-actions"><span class="fine">노트는 내 계정에 저장돼요.</span><button class="button primary" id="saveQuickNote">노트 저장</button></div></div>
+    <div class="panel"><div class="panel-head"><h3>최근 노트</h3><span id="noteCount" class="count">0개</span></div><div id="notesList" class="note-list"><p class="empty">로그인 후 노트를 작성할 수 있어요.</p></div></div>
+  </section>
   <nav class="tabs" aria-label="주요 메뉴">
-    <button class="tab active" data-tab="wishlist">♡ 가고 싶은 곳</button>
-    <button class="tab" data-tab="visited">▣ 다녀온 곳</button>
-    <button class="tab" data-tab="discover">⌖ 사진 명소</button>
+    <button class="tab active" data-tab="map">⌖ 지도</button>
+    <button class="tab" data-tab="bucket">♡ 버킷리스트</button>
+    <button class="tab" data-tab="calendar">▦ 캘린더</button>
   </nav>
-  <section id="wishlistView" class="view active">
+  <section id="mapView" class="view active">
+    <div class="section-heading"><div><p class="eyebrow">MY TRAVEL MAP</p><h2>나의 여행 지도</h2><p class="muted">가고 싶은 곳과 다녀온 곳을 한 메뉴에서 관리해요.</p></div></div>
+  <section id="wishlistView" class="map-subview">
     <div class="section-heading"><div><p class="eyebrow">MY WISH LIST</p><h2>언젠가 가보고 싶은 장소</h2><p class="muted">장소를 지도에서 선택해 저장해 두세요.</p></div><button class="button primary" id="addWishlistBtn">+ 장소 저장</button></div>
     <div class="map-wrap"><div id="wishlistMap" class="map"></div></div>
     <div class="panel"><div class="panel-head"><h3>저장한 장소</h3><span id="wishlistCount" class="count">0곳</span></div><div id="wishlistList" class="card-grid"><p class="empty">로그인하면 저장한 장소가 여기에 보여요.</p></div></div>
   </section>
-  <section id="visitedView" class="view">
+  <section id="visitedView" class="map-subview">
     <div class="section-heading"><div><p class="eyebrow">MY TRAVEL DIARY</p><h2>다녀온 곳과 사진 일기</h2><p class="muted">방문 날짜, 사진, 짧은 감상을 기록해 보세요.</p></div><button class="button primary" id="addDiaryBtn">+ 일기 쓰기</button></div>
     <div class="map-wrap"><div id="visitedMap" class="map"></div></div>
     <div class="panel"><div class="panel-head"><h3>나의 여행 기록</h3><span id="diaryCount" class="count">0개</span></div><div id="diaryList" class="diary-grid"><p class="empty">아직 작성한 일기가 없어요.</p></div></div>
   </section>
-  <section id="discoverView" class="view">
-    <div class="section-heading"><div><p class="eyebrow">PHOTO SPOT DISCOVERY</p><h2>사진 명소 탐색</h2><p class="muted">서울·수도권을 우선으로 모은 장소 목록이에요. 새 장소는 계속 보완할 수 있어요.</p></div></div>
-    <div class="toolbar"><input id="discoverSearch" type="search" placeholder="장소명 또는 지역 검색"><select id="discoverRegion"><option value="all">전 지역</option><option value="서울">서울</option><option value="경기">경기</option><option value="인천">인천</option></select></div>
-    <div class="tag-filter" id="tagFilters"><button class="chip active" data-tag="all">전체</button><button class="chip" data-tag="야경">야경</button><button class="chip" data-tag="자연">자연</button><button class="chip" data-tag="건축">건축</button><button class="chip" data-tag="벚꽃">벚꽃</button><button class="chip" data-tag="데이트">데이트</button><button class="chip" data-tag="산책">산책</button><button class="chip" data-tag="전망">전망</button></div>
-    <div class="map-wrap"><div id="discoverMap" class="map"></div></div>
-    <div class="panel"><div class="panel-head"><h3>추천 사진 명소</h3><span id="discoverCount" class="count">0곳</span></div><div id="discoverList" class="card-grid"></div><p class="fine">장소 정보는 참고용입니다. 운영 시간·출입 가능 여부·촬영 제한은 방문 전 공식 안내를 확인하세요. SNS 게시물 전체를 실시간으로 자동 수집하는 기능은 제공하지 않으며, 공개적으로 확인 가능한 명소 목록을 수동으로 관리하는 방식입니다.</p></div>
+  </section>
+  <section id="bucketView" class="view">
+    <div class="section-heading"><div><p class="eyebrow">TRAVEL BUCKET LIST</p><h2>여행 버킷리스트</h2><p class="muted">언젠가 꼭 해보고 싶은 여행과 목표를 모아 보세요.</p></div><button class="button primary" id="addBucketBtn">+ 버킷리스트 추가</button></div>
+    <div class="bucket-filters"><button class="chip active" data-bucket-filter="all">전체</button><button class="chip" data-bucket-filter="todo">할 일</button><button class="chip" data-bucket-filter="done">완료</button></div>
+    <div id="bucketList" class="bucket-grid"><p class="empty">로그인 후 버킷리스트를 추가해 보세요.</p></div>
+  </section>
+  <section id="calendarView" class="view">
+    <div class="section-heading"><div><p class="eyebrow">TRAVEL CALENDAR</p><h2>여행 캘린더</h2><p class="muted">여행 날짜와 약속, 준비할 일을 기록해요.</p></div><button class="button primary" id="addEventBtn">+ 일정 추가</button></div>
+    <div class="calendar-toolbar"><button class="button secondary" id="prevMonth">←</button><h3 id="calendarMonth"></h3><button class="button secondary" id="nextMonth">→</button></div>
+    <div class="calendar-grid" id="calendarGrid"></div>
+    <div class="panel"><div class="panel-head"><h3 id="selectedDateTitle">선택한 날짜의 일정</h3></div><div id="selectedDateEvents"><p class="empty">날짜를 선택해 주세요.</p></div></div>
   </section>
   <footer>지도 © OpenStreetMap contributors · 개인 기록은 로그인한 계정에만 저장됩니다.</footer>
 </main>
 <dialog id="authDialog" class="dialog"><form method="dialog" class="dialog-close"><button aria-label="닫기">×</button></form><p class="eyebrow">YOUR ACCOUNT</p><h2>내 계정 로그인</h2><p class="muted">같은 계정으로 로그인하면 PC와 태블릿에서 기록을 함께 볼 수 있어요.</p><form id="authForm" class="form-stack"><label>이메일<input id="emailInput" type="email" required autocomplete="email"></label><label>비밀번호<input id="passwordInput" type="password" minlength="6" required autocomplete="current-password"></label><div class="button-row"><button id="signInBtn" class="button primary" type="button">로그인</button><button id="signUpBtn" class="button secondary" type="button">회원가입</button></div></form><p id="authMessage" class="message"></p></dialog>
 <dialog id="placeDialog" class="dialog"><form method="dialog" class="dialog-close"><button aria-label="닫기">×</button></form><p class="eyebrow">SAVE A PLACE</p><h2>가고 싶은 곳 저장</h2><form id="placeForm" class="form-stack"><label>장소 이름<input id="placeName" maxlength="100" required placeholder="예: 서울숲"></label><label>지역<input id="placeRegion" maxlength="40" placeholder="예: 서울 성동구"></label><label>종류<select id="placeCategory"><option>자연</option><option>전망</option><option>바다</option><option>건축</option><option>카페</option><option>기타</option></select></label><label>태그<input id="placeTags" placeholder="쉼표로 구분: 야경, 산책, 벚꽃"></label><label>메모<textarea id="placeNote" rows="3" maxlength="1000" placeholder="가고 싶은 이유, 촬영하고 싶은 장면"></textarea></label><div class="coord-box" id="placeCoords">지도를 눌러 위치를 선택해 주세요.</div><button class="button primary full" type="submit">저장하기</button></form></dialog>
 <dialog id="diaryDialog" class="dialog"><form method="dialog" class="dialog-close"><button aria-label="닫기">×</button></form><p class="eyebrow">TRAVEL DIARY</p><h2>방문 일기 작성</h2><form id="diaryForm" class="form-stack"><label>장소 이름<input id="diaryPlace" required maxlength="100" placeholder="예: 남산공원"></label><label>방문 날짜<input id="diaryDate" type="date" required></label><label>태그<input id="diaryTags" placeholder="예: 야경, 친구, 필름 느낌"></label><label>오늘의 기록<textarea id="diaryText" rows="5" maxlength="3000" placeholder="어떤 사진을 찍었고, 어떤 기분이었는지 적어보세요."></textarea></label><label>사진 첨부 <span class="muted">JPG / PNG / WEBP, 5MB 이하</span><input id="diaryPhoto" type="file" accept="image/jpeg,image/png,image/webp"></label><div class="coord-box" id="diaryCoords">선택한 위치: 없음 (방문 장소는 지도에서 선택할 수 있어요.)</div><button class="button primary full" type="submit">일기 저장</button></form></dialog>
+<dialog id="noteDialog" class="dialog"><form method="dialog" class="dialog-close"><button aria-label="닫기">×</button></form><p class="eyebrow">MY NOTE</p><h2>노트 작성</h2><form id="noteForm" class="form-stack"><label>제목<input id="noteTitle" maxlength="100" placeholder="예: 다음 여행 아이디어"></label><label>내용<textarea id="noteBody" rows="7" maxlength="3000" required placeholder="자유롭게 적어 보세요."></textarea></label><button class="button primary full" type="submit">저장하기</button></form></dialog>
+<dialog id="bucketDialog" class="dialog"><form method="dialog" class="dialog-close"><button aria-label="닫기">×</button></form><p class="eyebrow">TRAVEL BUCKET LIST</p><h2>버킷리스트 추가</h2><form id="bucketForm" class="form-stack"><label>하고 싶은 일<input id="bucketTitle" maxlength="120" required placeholder="예: 제주도에서 한 달 살기"></label><label>지역 또는 장소<input id="bucketPlace" maxlength="120" placeholder="예: 제주도"></label><label>목표 날짜<input id="bucketDate" type="date"></label><label>메모<textarea id="bucketMemo" rows="3" maxlength="1000" placeholder="이루고 싶은 이유나 준비할 것"></textarea></label><button class="button primary full" type="submit">추가하기</button></form></dialog>
+<dialog id="eventDialog" class="dialog"><form method="dialog" class="dialog-close"><button aria-label="닫기">×</button></form><p class="eyebrow">TRAVEL CALENDAR</p><h2>일정 추가</h2><form id="eventForm" class="form-stack"><label>일정 제목<input id="eventTitle" maxlength="120" required placeholder="예: 남산 사진 촬영"></label><label>날짜<input id="eventDate" type="date" required></label><label>장소<input id="eventPlace" maxlength="120" placeholder="예: 남산공원"></label><label>메모<textarea id="eventMemo" rows="3" maxlength="1000" placeholder="시간, 준비물 등을 적어 보세요."></textarea></label><button class="button primary full" type="submit">일정 저장</button></form></dialog>
 <dialog id="detailDialog" class="dialog detail-dialog"><form method="dialog" class="dialog-close"><button aria-label="닫기">×</button></form><div id="detailContent"></div></dialog>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="./config.js"></script><script src="./app.js"></script>
