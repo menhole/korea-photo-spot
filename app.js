@@ -8,7 +8,7 @@
   let wishlistPoint = null, diaryPoint = null;
   let wishlistMarkers = [], visitedMarkers = [];
   let myPlaces = [], diaries = [], catalog = [], notes = [], buckets = [], events = [];
-  let bucketFilter='all', calendarCursor=new Date(), selectedCalendarDate=new Date().toISOString().slice(0,10);
+  let bucketFilter='all', calendarCursor=new Date(), selectedCalendarDate=new Date().toISOString().slice(0,10), calendarPickerMode='calendar';
   let selectedTag = 'all';
   let liveCatalog = [];
   let lastLiveQuery = '';
@@ -42,17 +42,35 @@
   async function authRefresh(){
     if(!sb){$('authStatus').textContent='설정 필요';$('authOpen').classList.remove('hidden');$('logoutBtn').classList.add('hidden');return;}
     const {data}=await sb.auth.getSession(); user=data.session?.user||null;
-    $('authStatus').textContent=user?(user.email||'로그인됨'):'로그인 전';
+    $('authStatus').textContent=user?(user.user_metadata?.username || '로그인됨'):'로그인 전';
     $('authOpen').classList.toggle('hidden',!!user); $('logoutBtn').classList.toggle('hidden',!user);
+  }
+  function usernameToAuthEmail(username){
+    // Supabase Auth requires an email identifier. This reserved .invalid address is
+    // generated internally; the user never enters or receives an email address.
+    return `psk_${username.toLowerCase()}@photospot.invalid`;
   }
   async function authAction(mode){
     if(!sb){$('authMessage').textContent='config.js의 Supabase URL과 Publishable key를 확인해 주세요.';return;}
-    const email=$('emailInput').value.trim(),password=$('passwordInput').value;
-    if(!email||password.length<6){$('authMessage').textContent='이메일과 6자 이상의 비밀번호를 입력해 주세요.';return;}
+    const username=$('usernameInput').value.trim(),password=$('passwordInput').value;
+    if(!/^[a-zA-Z0-9_-]{4,20}$/.test(username)){
+      $('authMessage').textContent='아이디는 영문, 숫자, _ 또는 -만 사용해 4~20자로 입력해 주세요.';return;
+    }
+    if(password.length<8){$('authMessage').textContent='비밀번호는 8자 이상 입력해 주세요.';return;}
     $('authMessage').textContent='처리 중...';
-    const result=mode==='signup'?await sb.auth.signUp({email,password}):await sb.auth.signInWithPassword({email,password});
-    if(result.error){$('authMessage').textContent=result.error.message;return;}
-    if(mode==='signup'&&!result.data.session){$('authMessage').textContent='가입 요청이 완료됐어요. 이메일 확인 후 로그인해 주세요.';return;}
+    const email=usernameToAuthEmail(username);
+    const result=mode==='signup'
+      ? await sb.auth.signUp({email,password,options:{data:{username:username.toLowerCase()}}})
+      : await sb.auth.signInWithPassword({email,password});
+    if(result.error){
+      const msg=result.error.message||'인증에 실패했어요.';
+      $('authMessage').textContent=mode==='signup'&&/already registered|already been registered/i.test(msg)
+        ? '이미 사용 중인 아이디예요. 다른 아이디를 선택해 주세요.' : msg;
+      return;
+    }
+    if(mode==='signup'&&!result.data.session){
+      $('authMessage').textContent='Supabase에서 Confirm email을 OFF로 바꿔야 이메일 없이 가입할 수 있어요. 설정 후 다시 시도해 주세요.';return;
+    }
     await authRefresh(); if(user){$('authDialog').close();await loadPrivateData();toast('로그인했어요.');}
   }
   async function loadPrivateData(){
@@ -130,12 +148,25 @@
     $('bucketList').innerHTML=rows.map(b=>`<article class="bucket-card ${b.is_done?'is-done':''}"><div class="bucket-card-head"><label class="bucket-check"><input type="checkbox" data-togglebucket="${b.id}" ${b.is_done?'checked':''}><span></span></label><div><h3>${escapeHtml(b.title)}</h3><p>${escapeHtml(b.place||'장소 미정')}</p></div></div>${b.target_date?`<span class="tag">목표일 ${escapeHtml(b.target_date)}</span>`:''}<p class="bucket-memo">${escapeHtml(b.memo||'')}</p><div class="card-actions"><button class="button ghost" data-deletebucket="${b.id}">삭제</button></div></article>`).join('')||'<p class="empty">아직 버킷리스트가 없어요. 가보고 싶은 곳이나 해보고 싶은 일을 추가해 보세요.</p>';
   }
   function renderCalendar(){
-    const y=calendarCursor.getFullYear(),m=calendarCursor.getMonth();$('calendarMonth').textContent=`${y}년 ${m+1}월`;
+    const y=calendarCursor.getFullYear(),m=calendarCursor.getMonth();
+    const title=$('calendarMonth');
+    title.textContent=calendarPickerMode==='year'?`${Math.floor(y/10)*10}년대`:calendarPickerMode==='month'?`${y}년`:`${y}년 ${m+1}월`;
+    title.setAttribute('aria-label',calendarPickerMode==='calendar'?'월 선택':'연도 선택');
+    const grid=$('calendarGrid');
+    if(calendarPickerMode==='month'){
+      grid.innerHTML=Array.from({length:12},(_,i)=>`<button class="calendar-pick" data-calendar-month="${i}">${i+1}월</button>`).join('');
+      renderSelectedEvents();return;
+    }
+    if(calendarPickerMode==='year'){
+      const start=Math.floor(y/10)*10-1;
+      grid.innerHTML=Array.from({length:12},(_,i)=>{const year=start+i;return `<button class="calendar-pick ${year===y?'selected':''}" data-calendar-year="${year}">${year}년</button>`;}).join('');
+      renderSelectedEvents();return;
+    }
     const first=new Date(y,m,1),start=first.getDay(),days=new Date(y,m+1,0).getDate();
     const labels=['일','월','화','수','목','금','토'];let html=labels.map(x=>`<div class="calendar-weekday">${x}</div>`).join('');
     for(let i=0;i<start;i++)html+='<div class="calendar-day empty-day"></div>';
     for(let d=1;d<=days;d++){const key=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,count=events.filter(e=>e.event_date===key).length;html+=`<button class="calendar-day ${selectedCalendarDate===key?'selected':''}" data-selectdate="${key}"><span>${d}</span>${count?`<i>${count}</i>`:''}</button>`;}
-    $('calendarGrid').innerHTML=html;renderSelectedEvents();
+    grid.innerHTML=html;renderSelectedEvents();
   }
   function renderSelectedEvents(){
     $('selectedDateTitle').textContent=`${selectedCalendarDate} 일정`;const rows=events.filter(e=>e.event_date===selectedCalendarDate);
@@ -212,9 +243,11 @@
   $('addNoteBtn').onclick=()=>{if(requireLogin())$('noteDialog').showModal();};$('saveQuickNote').onclick=saveQuickNote;$('noteForm').addEventListener('submit',saveNote);
   $('addBucketBtn').onclick=()=>{if(requireLogin())$('bucketDialog').showModal();};$('bucketForm').addEventListener('submit',saveBucket);
   $('addEventBtn').onclick=()=>{if(requireLogin()){$('eventDate').value=selectedCalendarDate;$('eventDialog').showModal();}};$('eventForm').addEventListener('submit',saveEvent);
-  $('prevMonth').onclick=()=>{calendarCursor.setMonth(calendarCursor.getMonth()-1);renderCalendar();};$('nextMonth').onclick=()=>{calendarCursor.setMonth(calendarCursor.getMonth()+1);renderCalendar();};
+  $('calendarMonth').onclick=()=>{calendarPickerMode=calendarPickerMode==='calendar'?'month':calendarPickerMode==='month'?'year':'month';renderCalendar();};
+  $('prevMonth').onclick=()=>{if(calendarPickerMode==='year')calendarCursor.setFullYear(calendarCursor.getFullYear()-10);else if(calendarPickerMode==='month')calendarCursor.setFullYear(calendarCursor.getFullYear()-1);else calendarCursor.setMonth(calendarCursor.getMonth()-1);renderCalendar();};
+  $('nextMonth').onclick=()=>{if(calendarPickerMode==='year')calendarCursor.setFullYear(calendarCursor.getFullYear()+10);else if(calendarPickerMode==='month')calendarCursor.setFullYear(calendarCursor.getFullYear()+1);else calendarCursor.setMonth(calendarCursor.getMonth()+1);renderCalendar();};
   document.querySelectorAll('[data-bucket-filter]').forEach(b=>b.onclick=()=>{bucketFilter=b.dataset.bucketFilter;document.querySelectorAll('[data-bucket-filter]').forEach(x=>x.classList.toggle('active',x===b));renderBuckets();});
-  document.addEventListener('click',e=>{const t=e.target.closest('[data-selectdate],[data-deletenote],[data-deletebucket],[data-deleteevent]');if(!t)return;if(t.dataset.selectdate){selectedCalendarDate=t.dataset.selectdate;renderCalendar();}if(t.dataset.deletenote)deleteOwned('travel_notes',t.dataset.deletenote);if(t.dataset.deletebucket)deleteOwned('travel_buckets',t.dataset.deletebucket);if(t.dataset.deleteevent)deleteOwned('travel_events',t.dataset.deleteevent);});
+  document.addEventListener('click',e=>{const t=e.target.closest('[data-selectdate],[data-calendar-month],[data-calendar-year],[data-deletenote],[data-deletebucket],[data-deleteevent]');if(!t)return;if(t.dataset.selectdate){selectedCalendarDate=t.dataset.selectdate;renderCalendar();}if(t.dataset.calendarMonth!==undefined){calendarCursor.setMonth(Number(t.dataset.calendarMonth));calendarPickerMode='calendar';renderCalendar();}if(t.dataset.calendarYear){calendarCursor.setFullYear(Number(t.dataset.calendarYear));calendarPickerMode='month';renderCalendar();}if(t.dataset.deletenote)deleteOwned('travel_notes',t.dataset.deletenote);if(t.dataset.deletebucket)deleteOwned('travel_buckets',t.dataset.deletebucket);if(t.dataset.deleteevent)deleteOwned('travel_events',t.dataset.deleteevent);});
   document.addEventListener('change',e=>{const t=e.target.closest('[data-togglebucket]');if(t)toggleBucket(t.dataset.togglebucket,t.checked);});
   initMaps();
   if(sb){authRefresh().then(loadPrivateData);sb.auth.onAuthStateChange(async()=>{await authRefresh();await loadPrivateData();});}
