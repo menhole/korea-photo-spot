@@ -1,194 +1,155 @@
 (() => {
-  const $ = (id) => document.getElementById(id);
+  const $ = id => document.getElementById(id);
   const cfg = window.APP_CONFIG || {};
-  const configured = cfg.SUPABASE_URL && cfg.SUPABASE_PUBLISHABLE_KEY &&
-    !cfg.SUPABASE_URL.includes("YOUR_PROJECT") && !cfg.SUPABASE_PUBLISHABLE_KEY.includes("REPLACE_ME");
-  const supabase = configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_PUBLISHABLE_KEY) : null;
-  const BUCKET = "spot-photos";
-  const categoryNames = {nature:"자연", viewpoint:"전망", sea:"바다", city:"도시·건축", community:"사용자 등록"};
-  const icons = {nature:"🌿",viewpoint:"🌄",sea:"🌊",city:"🏙️",community:"📷"};
-  let map, selectedPoint = null, markers = [], allSpots = [], osmSpots = [], activeCategory = "all";
-  let currentUser = null;
-  let favorites = JSON.parse(localStorage.getItem("psk_favorites") || "[]");
-
-  function toast(message) {
-    $("toast").textContent = message; $("toast").classList.add("show");
-    clearTimeout(toast.timer); toast.timer = setTimeout(() => $("toast").classList.remove("show"), 2600);
+  const configured = cfg.SUPABASE_URL && cfg.SUPABASE_PUBLISHABLE_KEY && !String(cfg.SUPABASE_URL).includes('YOUR_') && !String(cfg.SUPABASE_PUBLISHABLE_KEY).includes('YOUR_');
+  const sb = configured && window.supabase ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_PUBLISHABLE_KEY) : null;
+  const DIARY_BUCKET = 'private-diary';
+  let user = null, wishlistMap, visitedMap, discoverMap;
+  let wishlistPoint = null, diaryPoint = null;
+  let wishlistMarkers = [], visitedMarkers = [], discoverMarkers = [];
+  let myPlaces = [], diaries = [], catalog = [];
+  let selectedTag = 'all';
+  const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const tagsFrom = value => String(value || '').split(',').map(x => x.trim().replace(/^#/,'')).filter(Boolean).slice(0,12);
+  const tagsHtml = tags => (tags || []).map(t => `<span class="tag">#${escapeHtml(t)}</span>`).join('');
+  function toast(message){ $('toast').textContent=message; $('toast').classList.add('show'); clearTimeout(toast.timer); toast.timer=setTimeout(()=>$('toast').classList.remove('show'),2800); }
+  function requireLogin(){ if(user) return true; $('authDialog').showModal(); $('authMessage').textContent='기록을 저장하려면 먼저 로그인해 주세요.'; return false; }
+  function makeMap(id, center=[37.5665,126.9780], zoom=11){
+    const map=L.map(id).setView(center,zoom);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+    return map;
   }
-  function escapeHtml(s="") { return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-  function initMap() {
-    map = L.map("map").setView([36.35, 127.8], 7);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
-    map.on("click", e => {
-      selectedPoint = {lat:e.latlng.lat, lng:e.latlng.lng};
-      $("selectedCoords").textContent = `선택한 위치: ${selectedPoint.lat.toFixed(5)}, ${selectedPoint.lng.toFixed(5)}`;
-      if (window.selectionMarker) map.removeLayer(window.selectionMarker);
-      window.selectionMarker = L.marker([selectedPoint.lat, selectedPoint.lng]).addTo(map).bindPopup("새 장소 위치").openPopup();
-    });
+  function clearMarkers(list,map){list.forEach(m=>map.removeLayer(m));list.length=0;}
+  function marker(map,list,lat,lng,title,fn){
+    if(lat==null||lng==null||!Number.isFinite(Number(lat))||!Number.isFinite(Number(lng)))return;
+    const m=L.marker([Number(lat),Number(lng)]).addTo(map).bindPopup(escapeHtml(title||'장소'));
+    if(fn)m.on('click',fn); list.push(m);
   }
-  function getCategory(tags={}) {
-    if (tags.natural || tags.leisure === "park" || tags.tourism === "viewpoint") return tags.tourism === "viewpoint" ? "viewpoint" : "nature";
-    if (tags.natural === "beach" || tags.place === "beach" || tags.waterway || tags.natural === "coastline") return "sea";
-    if (tags.building || tags.tourism === "museum" || tags.historic) return "city";
-    return "viewpoint";
+  function initMaps(){
+    wishlistMap=makeMap('wishlistMap'); visitedMap=makeMap('visitedMap'); discoverMap=makeMap('discoverMap');
+    wishlistMap.on('click',e=>{wishlistPoint={lat:e.latlng.lat,lng:e.latlng.lng};$('placeCoords').textContent=`선택 위치: ${wishlistPoint.lat.toFixed(5)}, ${wishlistPoint.lng.toFixed(5)}`;});
+    visitedMap.on('click',e=>{diaryPoint={lat:e.latlng.lat,lng:e.latlng.lng};$('diaryCoords').textContent=`선택 위치: ${diaryPoint.lat.toFixed(5)}, ${diaryPoint.lng.toFixed(5)}`;});
   }
-  function render() {
-    markers.forEach(m => map.removeLayer(m)); markers = [];
-    const community = allSpots.map(s => ({...s, category:s.category || "community", source:"community"}));
-    const combined = [...community, ...osmSpots];
-    const visible = combined.filter(s => {
-      if (activeCategory === "all") return true;
-      if (activeCategory === "favorite") return favorites.includes(String(s.id));
-      if (activeCategory === "community") return s.source === "community";
-      return s.category === activeCategory;
-    }).filter(s => !($("searchInput").value.trim()) || (s.name || "").toLowerCase().includes($("searchInput").value.trim().toLowerCase()));
-    visible.forEach(s => {
-      const lat = Number(s.lat), lng = Number(s.lng);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-      const marker = L.marker([lat,lng]).addTo(map);
-      marker.bindPopup(`<b>${escapeHtml(s.name)}</b><br>${escapeHtml(categoryNames[s.category] || "지도 데이터")}`);
-      marker.on("click", () => openDetail(s));
-      markers.push(marker);
-    });
-    $("resultCount").textContent = `${visible.length}곳`;
-    $("spotList").innerHTML = visible.slice(0,100).map(s => {
-      const photo = s.photo_url || "";
-      const isFav = favorites.includes(String(s.id));
-      return `<article class="spot-card" data-id="${escapeHtml(s.id)}" data-source="${s.source || "osm"}">
-        ${photo ? `<img class="spot-thumb" src="${escapeHtml(photo)}" alt="" loading="lazy">` : `<div class="spot-thumb placeholder">${icons[s.category] || "📍"}</div>`}
-        <div class="spot-info"><span class="tag">${escapeHtml(categoryNames[s.category] || "지도 장소")}</span><b>${escapeHtml(s.name)}</b><p>${escapeHtml(s.description || s.address || "지도에서 위치를 확인해 보세요.")}</p></div>
-        <button class="favorite-btn" aria-label="즐겨찾기">${isFav ? "★" : "☆"}</button></article>`;
-    }).join("") || `<div class="empty">표시할 장소가 없어요. 다른 지역을 검색하거나 장소를 등록해 보세요.</div>`;
-    document.querySelectorAll(".spot-card").forEach(card => {
-      card.addEventListener("click", e => {
-        const s = visible.find(x => String(x.id) === card.dataset.id && (x.source || "osm") === card.dataset.source);
-        if (e.target.closest(".favorite-btn")) { e.stopPropagation(); toggleFavorite(s); return; }
-        if (s) { map.setView([s.lat,s.lng], 15); openDetail(s); }
-      });
-    });
+  function switchTab(name){
+    document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    $(`${name}View`).classList.add('active');
+    setTimeout(()=>{({wishlist:wishlistMap,visited:visitedMap,discover:discoverMap}[name])?.invalidateSize();},80);
   }
-  function toggleFavorite(s) {
-    const id = String(s.id);
-    favorites = favorites.includes(id) ? favorites.filter(x => x !== id) : [...favorites,id];
-    localStorage.setItem("psk_favorites", JSON.stringify(favorites)); render();
+  async function authRefresh(){
+    if(!sb){$('authStatus').textContent='설정 필요';$('authOpen').classList.remove('hidden');$('logoutBtn').classList.add('hidden');return;}
+    const {data}=await sb.auth.getSession(); user=data.session?.user||null;
+    $('authStatus').textContent=user?(user.email||'로그인됨'):'로그인 전';
+    $('authOpen').classList.toggle('hidden',!!user); $('logoutBtn').classList.toggle('hidden',!user);
   }
-  function openDetail(s) {
-    const photo = s.photo_url ? `<img class="detail-photo" src="${escapeHtml(s.photo_url)}" alt="장소 사진">` : "";
-    const category = categoryNames[s.category] || "지도 장소";
-    const route = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(s.lat+","+s.lng)}`;
-    $("detailContent").innerHTML = `<p class="eyebrow">${escapeHtml(category)}</p><h2>${escapeHtml(s.name)}</h2>${photo}<p class="detail-text">${escapeHtml(s.description || s.address || "등록된 설명이 없습니다.")}</p><div class="detail-actions"><button id="detailFav" class="button secondary">${favorites.includes(String(s.id)) ? "즐겨찾기 해제" : "즐겨찾기"}</button><button id="detailRoute" class="button primary">길찾기</button></div>`;
-    $("detailDialog").showModal();
-    $("detailFav").onclick = () => { toggleFavorite(s); $("detailDialog").close(); };
-    $("detailRoute").onclick = () => window.open(route, "_blank", "noopener,noreferrer");
+  async function authAction(mode){
+    if(!sb){$('authMessage').textContent='config.js의 Supabase URL과 Publishable key를 확인해 주세요.';return;}
+    const email=$('emailInput').value.trim(),password=$('passwordInput').value;
+    if(!email||password.length<6){$('authMessage').textContent='이메일과 6자 이상의 비밀번호를 입력해 주세요.';return;}
+    $('authMessage').textContent='처리 중...';
+    const result=mode==='signup'?await sb.auth.signUp({email,password}):await sb.auth.signInWithPassword({email,password});
+    if(result.error){$('authMessage').textContent=result.error.message;return;}
+    if(mode==='signup'&&!result.data.session){$('authMessage').textContent='가입 요청이 완료됐어요. 이메일 확인 후 로그인해 주세요.';return;}
+    await authRefresh(); if(user){$('authDialog').close();await loadPrivateData();toast('로그인했어요.');}
   }
-  async function refreshSpots() {
-    if (!supabase) { allSpots = []; render(); return; }
-    const {data,error} = await supabase.from("spots").select("*").order("created_at",{ascending:false}).limit(500);
-    if (error) { toast("장소 목록을 불러오지 못했어요: " + error.message); return; }
-    allSpots = data || []; render();
+  async function loadPrivateData(){
+    if(!sb||!user){myPlaces=[];diaries=[];catalog=[];renderAll();return;}
+    const [p,d,c]=await Promise.all([
+      sb.from('my_places').select('*').order('created_at',{ascending:false}),
+      sb.from('diary_entries').select('*').order('visited_on',{ascending:false}),
+      sb.from('photo_spots').select('*').order('region').order('name')
+    ]);
+    if(p.error||d.error||c.error){toast('자료를 불러오지 못했어요: '+(p.error||d.error||c.error).message);return;}
+    myPlaces=p.data||[]; diaries=d.data||[]; catalog=c.data||[];
+    for(const entry of diaries){ if(entry.photo_path){const {data}=await sb.storage.from(DIARY_BUCKET).createSignedUrl(entry.photo_path,3600);entry.photo_signed=data?.signedUrl||'';} }
+    renderAll();
   }
-  async function updateAuth() {
-    if (!supabase) {
-      $("authStatus").textContent = "Supabase 설정 필요";
-      $("authOpen").classList.remove("hidden"); $("logoutBtn").classList.add("hidden"); return;
-    }
-    const {data} = await supabase.auth.getSession();
-    currentUser = data.session?.user || null;
-    $("authStatus").textContent = currentUser ? (currentUser.email || "로그인됨") : "로그인 전";
-    $("authOpen").classList.toggle("hidden", !!currentUser);
-    $("logoutBtn").classList.toggle("hidden", !currentUser);
+  function renderWishlist(){
+    clearMarkers(wishlistMarkers,wishlistMap);
+    const rows=myPlaces.filter(p=>p.status==='wishlist');
+    rows.forEach(p=>marker(wishlistMap,wishlistMarkers,p.lat,p.lng,p.name,()=>openPlace(p)));
+    $('wishlistCount').textContent=`${rows.length}곳`;
+    $('wishlistList').innerHTML=rows.map(p=>`<article class="place-card"><span class="tag">${escapeHtml(p.region||p.category)}</span><h4>${escapeHtml(p.name)}</h4><p>${escapeHtml(p.note||'저장한 장소')}</p><div>${tagsHtml(p.tags)}</div><div class="card-actions"><button class="button secondary" data-visit="${p.id}">다녀왔어요</button><button class="button secondary" data-showplace="${p.id}">지도에서 보기</button><button class="button ghost" data-deleteplace="${p.id}">삭제</button></div></article>`).join('')||'<p class="empty">아직 저장한 장소가 없어요. 지도에서 위치를 선택하고 장소를 저장해 보세요.</p>';
   }
-  async function authAction(action) {
-    if (!supabase) { $("authMessage").textContent = "먼저 config.js에 Supabase 프로젝트 주소와 Publishable key를 입력하세요."; return; }
-    const email = $("emailInput").value.trim(), password = $("passwordInput").value;
-    if (!email || password.length < 6) { $("authMessage").textContent = "이메일과 6자 이상의 비밀번호를 입력하세요."; return; }
-    $("authMessage").textContent = "처리 중...";
-    const result = action === "signup"
-      ? await supabase.auth.signUp({email,password})
-      : await supabase.auth.signInWithPassword({email,password});
-    if (result.error) { $("authMessage").textContent = result.error.message; return; }
-    $("authMessage").textContent = action === "signup" ? "가입 요청이 완료됐어요. 이메일 확인이 필요할 수 있어요." : "로그인했어요.";
-    await updateAuth(); await refreshSpots();
-    if (action === "signin" && currentUser) $("authDialog").close();
+  function renderDiaries(){
+    clearMarkers(visitedMarkers,visitedMap);
+    const visitedPlaces=myPlaces.filter(p=>p.status==='visited');
+    visitedPlaces.forEach(p=>marker(visitedMap,visitedMarkers,p.lat,p.lng,p.name,()=>openPlace(p)));
+    diaries.forEach(d=>marker(visitedMap,visitedMarkers,d.lat,d.lng,d.place_name,()=>openDiary(d)));
+    $('diaryCount').textContent=`${diaries.length}개 일기 · ${visitedPlaces.length}곳 방문`;
+    $('diaryList').innerHTML=diaries.map(d=>`<article class="diary-card">${d.photo_signed?`<img class="diary-photo" src="${escapeHtml(d.photo_signed)}" alt="${escapeHtml(d.place_name)} 사진">`:''}<span class="tag">${escapeHtml(d.visited_on)}</span><h4>${escapeHtml(d.place_name)}</h4><p>${escapeHtml(d.body||'기록 없음')}</p><div>${tagsHtml(d.tags)}</div><div class="card-actions"><button class="button secondary" data-showdiary="${d.id}">지도에서 보기</button><button class="button ghost" data-deletediary="${d.id}">삭제</button></div></article>`).join('')||'<p class="empty">아직 작성한 일기가 없어요. 다녀온 장소와 사진을 기록해 보세요.</p>';
   }
-  async function uploadPhoto(file) {
-    if (!file) return null;
-    if (!file.type.startsWith("image/") || !["image/jpeg","image/png","image/webp"].includes(file.type)) throw new Error("JPG, PNG, WEBP 사진만 올릴 수 있어요.");
-    if (file.size > 5 * 1024 * 1024) throw new Error("사진은 5MB 이하로 선택해 주세요.");
-    const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
-    const path = `${currentUser.id}/${crypto.randomUUID()}.${ext}`;
-    const {error} = await supabase.storage.from(BUCKET).upload(path,file,{contentType:file.type,upsert:false});
-    if (error) throw error;
-    const {data} = supabase.storage.from(BUCKET).getPublicUrl(path);
-    return {path,url:data.publicUrl};
+  function renderDiscover(){
+    clearMarkers(discoverMarkers,discoverMap);
+    const q=$('discoverSearch').value.trim().toLowerCase(), region=$('discoverRegion').value;
+    const rows=catalog.filter(s=>(region==='all'||s.region.includes(region))&&(!q||`${s.name} ${s.region} ${s.description}`.toLowerCase().includes(q))&&(selectedTag==='all'||(s.tags||[]).includes(selectedTag)));
+    rows.forEach(s=>marker(discoverMap,discoverMarkers,s.lat,s.lng,s.name,()=>openCatalog(s)));
+    $('discoverCount').textContent=`${rows.length}곳`;
+    $('discoverList').innerHTML=rows.map(s=>`<article class="place-card"><div class="spot-cover">📍</div><span class="tag">${escapeHtml(s.region)}</span><h4>${escapeHtml(s.name)}</h4><p>${escapeHtml(s.description)}</p><div>${tagsHtml(s.tags)}</div><div class="card-actions"><button class="button primary" data-savecatalog="${s.id}">가고 싶은 곳에 저장</button><button class="button secondary" data-centercatalog="${s.id}">지도에서 보기</button></div><p class="fine">출처 메모: ${escapeHtml(s.source_note||'장소 기본 정보')}</p></article>`).join('')||'<p class="empty">검색 결과가 없어요.</p>';
   }
-  async function submitSpot(e) {
-    e.preventDefault();
-    if (!supabase) { toast("Supabase 설정을 먼저 완료해 주세요."); return; }
-    if (!currentUser) { toast("장소 등록은 로그인 후 사용할 수 있어요."); $("authDialog").showModal(); return; }
-    if (!selectedPoint) { toast("먼저 지도를 눌러 장소 위치를 선택하세요."); return; }
-    const name = $("spotName").value.trim();
-    if (!name) return;
-    const submit = e.submitter; if (submit) submit.disabled = true;
-    try {
-      let photo = null;
-      const file = $("spotPhoto").files[0];
-      if (file) photo = await uploadPhoto(file);
-      const row = {
-        user_id: currentUser.id, name, category:$("spotCategory").value,
-        description:$("spotDescription").value.trim(),
-        lat:selectedPoint.lat, lng:selectedPoint.lng,
-        photo_url:photo?.url || null, photo_path:photo?.path || null
-      };
-      const {error} = await supabase.from("spots").insert(row);
-      if (error) {
-        if (photo?.path) await supabase.storage.from(BUCKET).remove([photo.path]);
-        throw error;
-      }
-      $("spotForm").reset(); selectedPoint = null;
-      $("selectedCoords").textContent = "선택한 위치: 아직 없음";
-      if (window.selectionMarker) { map.removeLayer(window.selectionMarker); window.selectionMarker = null; }
-      await refreshSpots(); toast("장소가 모두와 공유됐어요!");
-    } catch (err) { toast("등록 실패: " + (err.message || "다시 시도해 주세요.")); }
-    finally { if (submit) submit.disabled = false; }
+  function renderAll(){renderWishlist();renderDiaries();renderDiscover();}
+  function openPlace(p){
+    $('detailContent').innerHTML=`<p class="eyebrow">MY PLACE</p><h2>${escapeHtml(p.name)}</h2><p class="detail-text">${escapeHtml(p.note||'메모 없음')}</p><p>${tagsHtml(p.tags)}</p><div class="card-actions"><button id="detailRoute" class="button primary">길찾기</button></div>`;
+    $('detailDialog').showModal();$('detailRoute').onclick=()=>window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${p.lat},${p.lng}`)}`,'_blank','noopener');
   }
-  async function searchOSM() {
-    const b = map.getBounds(), south=b.getSouth(), west=b.getWest(), north=b.getNorth(), east=b.getEast();
-    const query = `[out:json][timeout:20];(node["tourism"~"attraction|viewpoint|museum|artwork"](${south},${west},${north},${east});way["tourism"~"attraction|viewpoint|museum"](${south},${west},${north},${east});node["natural"~"beach|peak|water"](${south},${west},${north},${east});node["historic"](${south},${west},${north},${east}););out center tags 80;`;
-    $("osmBtn").disabled = true; $("osmBtn").textContent = "찾는 중...";
-    try {
-      const res = await fetch("https://overpass-api.de/api/interpreter", {method:"POST",body:"data="+encodeURIComponent(query)});
-      if (!res.ok) throw new Error("지도 데이터 서버 응답이 원활하지 않아요.");
-      const json = await res.json();
-      osmSpots = (json.elements || []).map(el => {
-        const tags = el.tags || {}, lat = el.lat ?? el.center?.lat, lng = el.lon ?? el.center?.lon;
-        return {id:"osm-"+el.type+"-"+el.id, name:tags.name || tags["name:ko"] || "이름 없는 장소", category:getCategory(tags), lat,lng, description:tags.description || tags.tourism || tags.natural || tags.historic || "", address:tags["addr:full"] || "OpenStreetMap 장소", source:"osm"};
-      }).filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng));
-      render(); toast(`${osmSpots.length}곳을 찾았어요. 데이터는 이용자 기여 정보예요.`);
-    } catch (err) { toast(err.message || "장소 검색에 실패했어요."); }
-    finally { $("osmBtn").disabled = false; $("osmBtn").textContent = "이 지역 장소 찾기"; }
+  function openDiary(d){$('detailContent').innerHTML=`<p class="eyebrow">TRAVEL DIARY · ${escapeHtml(d.visited_on)}</p><h2>${escapeHtml(d.place_name)}</h2>${d.photo_signed?`<img class="detail-photo" src="${escapeHtml(d.photo_signed)}" alt="방문 사진">`:''}<p class="detail-text">${escapeHtml(d.body||'')}</p><p>${tagsHtml(d.tags)}</p>`;$('detailDialog').showModal();}
+  function openCatalog(s){
+    $('detailContent').innerHTML=`<p class="eyebrow">PHOTO SPOT · ${escapeHtml(s.region)}</p><h2>${escapeHtml(s.name)}</h2><p class="detail-text">${escapeHtml(s.description)}</p><p>${tagsHtml(s.tags)}</p><div class="card-actions"><button id="detailSave" class="button primary">가고 싶은 곳에 저장</button><button id="detailRoute" class="button secondary">길찾기</button></div>`;
+    $('detailDialog').showModal();$('detailSave').onclick=()=>saveCatalog(s);$('detailRoute').onclick=()=>window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${s.lat},${s.lng}`)}`,'_blank','noopener');
   }
-
-  $("authOpen").onclick = () => { $("authMessage").textContent = ""; $("authDialog").showModal(); };
-  $("signInBtn").onclick = () => authAction("signin");
-  $("signUpBtn").onclick = () => authAction("signup");
-  $("logoutBtn").onclick = async () => { if (supabase) { await supabase.auth.signOut(); await updateAuth(); toast("로그아웃했어요."); } };
-  $("spotForm").addEventListener("submit", submitSpot);
-  $("osmBtn").onclick = searchOSM;
-  $("searchBtn").onclick = render;
-  $("searchInput").addEventListener("keydown",e=>{if(e.key==="Enter")render();});
-  $("nearMeBtn").onclick = () => {
-    if (!navigator.geolocation) return toast("이 브라우저에서는 위치 기능을 사용할 수 없어요.");
-    navigator.geolocation.getCurrentPosition(pos => map.setView([pos.coords.latitude,pos.coords.longitude],14), () => toast("위치 권한을 확인해 주세요."));
-  };
-  document.querySelectorAll(".filter").forEach(btn => btn.onclick = () => {
-    document.querySelectorAll(".filter").forEach(b=>b.classList.remove("active"));
-    btn.classList.add("active"); activeCategory = btn.dataset.category; render();
+  async function saveCatalog(s){
+    if(!requireLogin())return;
+    const {error}=await sb.from('my_places').insert({user_id:user.id,name:s.name,region:s.region,category:s.category,note:s.description,status:'wishlist',lat:s.lat,lng:s.lng,tags:s.tags||[]});
+    if(error){toast('저장 실패: '+error.message);return;} $('detailDialog').close();await loadPrivateData();toast('가고 싶은 곳에 저장했어요.');
+  }
+  async function saveWishlist(e){
+    e.preventDefault();if(!requireLogin())return;
+    const name=$('placeName').value.trim();if(!name)return;
+    const row={user_id:user.id,name,region:$('placeRegion').value.trim(),category:$('placeCategory').value,note:$('placeNote').value.trim(),tags:tagsFrom($('placeTags').value),status:'wishlist',lat:wishlistPoint?.lat??null,lng:wishlistPoint?.lng??null};
+    const {error}=await sb.from('my_places').insert(row);if(error){toast('저장 실패: '+error.message);return;}
+    $('placeForm').reset();wishlistPoint=null;$('placeCoords').textContent='지도를 눌러 위치를 선택해 주세요.';$('placeDialog').close();await loadPrivateData();toast('장소를 저장했어요.');
+  }
+  async function markVisited(id){
+    const {error}=await sb.from('my_places').update({status:'visited',visited_at:new Date().toISOString().slice(0,10)}).eq('id',id).eq('user_id',user.id);
+    if(error){toast('변경 실패: '+error.message);return;}await loadPrivateData();toast('다녀온 곳으로 옮겼어요. 일기는 별도로 작성할 수 있어요.');
+  }
+  async function deletePlace(id){if(!confirm('이 장소를 내 목록에서 삭제할까요?'))return;const {error}=await sb.from('my_places').delete().eq('id',id).eq('user_id',user.id);if(error){toast(error.message);return;}await loadPrivateData();}
+  async function uploadDiaryPhoto(file){
+    if(!file)return null;if(!['image/jpeg','image/png','image/webp'].includes(file.type))throw new Error('JPG, PNG, WEBP 사진만 첨부할 수 있어요.');if(file.size>5*1024*1024)throw new Error('사진은 5MB 이하로 선택해 주세요.');
+    const ext=file.type==='image/png'?'png':file.type==='image/webp'?'webp':'jpg',path=`${user.id}/${crypto.randomUUID()}.${ext}`;
+    const {error}=await sb.storage.from(DIARY_BUCKET).upload(path,file,{contentType:file.type,upsert:false});if(error)throw error;return path;
+  }
+  async function saveDiary(e){
+    e.preventDefault();if(!requireLogin())return;
+    let photoPath=null;
+    try{
+      const file=$('diaryPhoto').files[0];if(file)photoPath=await uploadDiaryPhoto(file);
+      const row={user_id:user.id,place_name:$('diaryPlace').value.trim(),visited_on:$('diaryDate').value,body:$('diaryText').value.trim(),tags:tagsFrom($('diaryTags').value),photo_path:photoPath,lat:diaryPoint?.lat??null,lng:diaryPoint?.lng??null};
+      const {error}=await sb.from('diary_entries').insert(row);if(error)throw error;
+      $('diaryForm').reset();diaryPoint=null;$('diaryCoords').textContent='선택한 위치: 없음 (방문 장소는 지도에서 선택할 수 있어요.)';$('diaryDialog').close();await loadPrivateData();toast('방문 일기를 저장했어요.');
+    }catch(err){if(photoPath)await sb.storage.from(DIARY_BUCKET).remove([photoPath]);toast('일기 저장 실패: '+err.message);}
+  }
+  async function deleteDiary(id){if(!confirm('이 일기를 삭제할까요?'))return;const d=diaries.find(x=>x.id===id);const {error}=await sb.from('diary_entries').delete().eq('id',id).eq('user_id',user.id);if(error){toast(error.message);return;}if(d?.photo_path)await sb.storage.from(DIARY_BUCKET).remove([d.photo_path]);await loadPrivateData();}
+  function showOnMap(map,lat,lng){if(lat!=null&&lng!=null){map.setView([lat,lng],15);}}
+  document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
+  $('authOpen').onclick=()=>$('authDialog').showModal();$('signInBtn').onclick=()=>authAction('signin');$('signUpBtn').onclick=()=>authAction('signup');
+  $('logoutBtn').onclick=async()=>{if(sb){await sb.auth.signOut();await authRefresh();await loadPrivateData();toast('로그아웃했어요.');}};
+  $('addWishlistBtn').onclick=()=>{if(requireLogin()){$('placeCoords').textContent='지도에서 위치를 선택하거나 비워 둘 수 있어요.';$('placeDialog').showModal();}};
+  $('addDiaryBtn').onclick=()=>{if(requireLogin()){$('diaryDate').value=new Date().toISOString().slice(0,10);$('diaryDialog').showModal();}};
+  $('placeForm').addEventListener('submit',saveWishlist);$('diaryForm').addEventListener('submit',saveDiary);
+  $('discoverSearch').addEventListener('input',renderDiscover);$('discoverRegion').addEventListener('change',renderDiscover);
+  $('tagFilters').addEventListener('click',e=>{const b=e.target.closest('[data-tag]');if(!b)return;selectedTag=b.dataset.tag;document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('active',x===b));renderDiscover();});
+  document.addEventListener('click',e=>{
+    const t=e.target.closest('[data-visit],[data-deleteplace],[data-showplace],[data-showdiary],[data-deletediary],[data-savecatalog],[data-centercatalog]');if(!t)return;
+    if(t.dataset.visit)markVisited(t.dataset.visit);
+    if(t.dataset.deleteplace)deletePlace(t.dataset.deleteplace);
+    if(t.dataset.showplace){const p=myPlaces.find(x=>x.id===t.dataset.showplace);if(p)showOnMap(wishlistMap,p.lat,p.lng);}
+    if(t.dataset.showdiary){const d=diaries.find(x=>x.id===t.dataset.showdiary);if(d){showOnMap(visitedMap,d.lat,d.lng);openDiary(d);}}
+    if(t.dataset.deletediary)deleteDiary(t.dataset.deletediary);
+    if(t.dataset.savecatalog){const s=catalog.find(x=>x.id===t.dataset.savecatalog);if(s)saveCatalog(s);}
+    if(t.dataset.centercatalog){const s=catalog.find(x=>x.id===t.dataset.centercatalog);if(s)showOnMap(discoverMap,s.lat,s.lng);}
   });
-  initMap();
-  updateAuth().then(refreshSpots);
-  if (supabase) supabase.auth.onAuthStateChange(() => { updateAuth(); refreshSpots(); });
-  if (!supabase) toast("시작하려면 README의 Supabase 설정을 따라 config.js를 수정하세요.");
+  initMaps();
+  if(sb){authRefresh().then(loadPrivateData);sb.auth.onAuthStateChange(async()=>{await authRefresh();await loadPrivateData();});}
+  else{toast('시작하려면 기존 config.js에 Supabase URL과 Publishable key가 설정되어 있어야 해요.');renderAll();}
 })();
