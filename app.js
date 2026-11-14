@@ -2,7 +2,16 @@
   const $ = id => document.getElementById(id);
   const cfg = window.APP_CONFIG || {};
   const configured = cfg.SUPABASE_URL && cfg.SUPABASE_PUBLISHABLE_KEY && !String(cfg.SUPABASE_URL).includes('YOUR_') && !String(cfg.SUPABASE_PUBLISHABLE_KEY).includes('YOUR_');
-  const sb = configured && window.supabase ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_PUBLISHABLE_KEY) : null;
+  let sb = null;
+  let supabaseInitError = '';
+  if (configured && window.supabase) {
+    try {
+      sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_PUBLISHABLE_KEY);
+    } catch (err) {
+      supabaseInitError = err?.message || 'Supabase 설정을 읽지 못했어요.';
+      console.error('Supabase 초기화 오류:', err);
+    }
+  }
   const DIARY_BUCKET = 'private-diary';
   let user = null, wishlistMap, visitedMap;
   let wishlistPoint = null, diaryPoint = null;
@@ -51,7 +60,12 @@
     return `psk_${username.toLowerCase()}@photospot.invalid`;
   }
   async function authAction(mode){
-    if(!sb){$('authMessage').textContent='config.js의 Supabase URL과 Publishable key를 확인해 주세요.';return;}
+    if(!sb){
+      $('authMessage').textContent = supabaseInitError
+        ? 'Supabase 설정 오류: ' + supabaseInitError
+        : 'config.js의 Supabase URL과 Publishable key를 확인해 주세요.';
+      return;
+    }
     const username=$('usernameInput').value.trim(),password=$('passwordInput').value;
     if(!/^[a-zA-Z0-9_-]{4,20}$/.test(username)){
       $('authMessage').textContent='아이디는 영문, 숫자, _ 또는 -만 사용해 4~20자로 입력해 주세요.';return;
@@ -59,9 +73,16 @@
     if(password.length<8){$('authMessage').textContent='비밀번호는 8자 이상 입력해 주세요.';return;}
     $('authMessage').textContent='처리 중...';
     const email=usernameToAuthEmail(username);
-    const result=mode==='signup'
-      ? await sb.auth.signUp({email,password,options:{data:{username:username.toLowerCase()}}})
-      : await sb.auth.signInWithPassword({email,password});
+    let result;
+    try {
+      result = mode==='signup'
+        ? await sb.auth.signUp({email,password,options:{data:{username:username.toLowerCase()}}})
+        : await sb.auth.signInWithPassword({email,password});
+    } catch (err) {
+      $('authMessage').textContent = '요청 중 오류가 발생했어요: ' + (err?.message || '네트워크 상태를 확인해 주세요.');
+      console.error('인증 요청 오류:', err);
+      return;
+    }
     if(result.error){
       const msg=result.error.message||'인증에 실패했어요.';
       $('authMessage').textContent=mode==='signup'&&/already registered|already been registered/i.test(msg)
