@@ -296,9 +296,7 @@
   }
   async function saveCatalog(s){
     if(!requireLogin())return;
-    const {error}=await sb.from('my_places').insert({user_id:user.id,name:String(s.name||'').slice(0,100),region:s.region,category:s.category,note:[s.description,s.url?`출처: ${s.url}`:''].filter(Boolean).join('
-
-'),status:'wishlist',lat:s.lat??null,lng:s.lng??null,tags:s.tags||[]});
+    const {error}=await sb.from('my_places').insert({user_id:user.id,name:String(s.name||'').slice(0,100),region:s.region,category:s.category,note:[s.description,s.url?`출처: ${s.url}`:''].filter(Boolean).join('\n\n'),status:'wishlist',lat:s.lat??null,lng:s.lng??null,tags:s.tags||[]});
     if(error){toast('저장 실패: '+error.message);return;} $('detailDialog').close();await loadPrivateData();toast('가고 싶은 곳에 저장했어요.');
   }
   async function saveWishlist(e){
@@ -384,7 +382,7 @@
     },120);
   }
 
-  // 지도 검색: 저장된 장소/일기의 이름과 태그를 검색하고, 일반 장소는 지도 검색 API로 찾습니다.
+  // 지도 검색: 저장된 장소/일기의 이름과 태그를 검색하고, 일반 장소는 지도 검색 API로 찾되 가장 연관성이 높은 결과를 우선 띄웁니다.
   (function addMapSearchUI(){
     const style=document.createElement('style');
     style.textContent=`
@@ -438,6 +436,9 @@
             ];
             const matches=records.filter(r=>(r.tags||[]).some(t=>String(t).toLowerCase().includes(q.toLowerCase())));
             results.innerHTML=matches.length?matches.map((r,i)=>`<button type="button" class="map-search-result" data-local-result="${i}"><strong>${escapeHtml(r.name)}</strong><small>${escapeHtml((r.tags||[]).map(t=>'#'+t).join(' '))} · ${escapeHtml(r.detail)}</small></button>`).join(''):'<p class="map-search-message">해당 태그가 붙은 저장 장소가 없어요.</p>';
+            if(matches.length && validCoords(matches[0].lat, matches[0].lng)){
+              showOnMap(config.mapName==='wishlist'?wishlistMap:visitedMap, matches[0].lat, matches[0].lng, matches[0].name, config.mapName==='wishlist'?wishlistMarkers:visitedMarkers);
+            }
             results.querySelectorAll('[data-local-result]').forEach((b,i)=>b.addEventListener('click',()=>{
               const r=matches[i];showOnMap(config.mapName==='wishlist'?wishlistMap:visitedMap,r.lat,r.lng,r.name,config.mapName==='wishlist'?wishlistMarkers:visitedMarkers);
             }));
@@ -448,6 +449,7 @@
             ];
             const local=records.filter(r=>`${r.name} ${r.detail} ${(r.tags||[]).join(' ')}`.toLowerCase().includes(q.toLowerCase())&&validCoords(r.lat,r.lng));
             if(local.length){
+              showOnMap(config.mapName==='wishlist'?wishlistMap:visitedMap, local[0].lat, local[0].lng, local[0].name, config.mapName==='wishlist'?wishlistMarkers:visitedMarkers);
               results.innerHTML=local.map((r,i)=>`<button type="button" class="map-search-result" data-local-result="${i}"><strong>${escapeHtml(r.name)}</strong><small>${escapeHtml(r.detail)}</small></button>`).join('');
               results.querySelectorAll('[data-local-result]').forEach((b,i)=>b.addEventListener('click',()=>{
                 const r=local[i];showOnMap(config.mapName==='wishlist'?wishlistMap:visitedMap,r.lat,r.lng,r.name,config.mapName==='wishlist'?wishlistMarkers:visitedMarkers);
@@ -457,16 +459,33 @@
               const response=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=7&q=${encodeURIComponent(q)}`,{headers:{'Accept':'application/json'}});
               if(!response.ok) throw new Error('지도 검색 서비스에 연결하지 못했어요.');
               const found=await response.json();
-              results.innerHTML=found.length?found.map((r,i)=>`<button type="button" class="map-search-result" data-geo-result="${i}"><strong>${escapeHtml(r.name||r.display_name.split(',')[0])}</strong><small>${escapeHtml(r.display_name)}</small></button>`).join(''):'<p class="map-search-message">검색 결과가 없어요. 다른 장소 이름으로 검색해 주세요.</p>';
-              results.querySelectorAll('[data-geo-result]').forEach((b,i)=>b.addEventListener('click',()=>{
-                const r=found[i],lat=Number(r.lat),lng=Number(r.lon);
-                if(!validCoords(lat,lng))return;
-                const map=config.mapName==='wishlist'?wishlistMap:visitedMap;
-                const old=config.mapName==='wishlist'?wishlistFocusMarker:visitedFocusMarker;
-                if(old)map.removeLayer(old);
-                switchTab('map');
-                setTimeout(()=>{map.invalidateSize();map.flyTo([lat,lng],16,{duration:.5});const marker=L.marker([lat,lng]).addTo(map).bindPopup(popupHtml(r.name||r.display_name.split(',')[0],lat,lng)).openPopup();if(config.mapName==='wishlist')wishlistFocusMarker=marker;else visitedFocusMarker=marker;},120);
-              }));
+              if(found && found.length > 0){
+                const bestMatch=found[0], bestLat=Number(bestMatch.lat), bestLng=Number(bestMatch.lon);
+                if(validCoords(bestLat,bestLng)){
+                  const map=config.mapName==='wishlist'?wishlistMap:visitedMap;
+                  const old=config.mapName==='wishlist'?wishlistFocusMarker:visitedFocusMarker;
+                  if(old)map.removeLayer(old);
+                  switchTab('map');
+                  setTimeout(()=>{
+                    map.invalidateSize();
+                    map.flyTo([bestLat,bestLng],16,{duration:.5});
+                    const marker=L.marker([bestLat,bestLng]).addTo(map).bindPopup(popupHtml(bestMatch.name||bestMatch.display_name.split(',')[0],bestLat,bestLng)).openPopup();
+                    if(config.mapName==='wishlist')wishlistFocusMarker=marker;else visitedFocusMarker=marker;
+                  },120);
+                }
+                results.innerHTML=found.map((r,i)=>`<button type="button" class="map-search-result" data-geo-result="${i}"><strong>${escapeHtml(r.name||r.display_name.split(',')[0])}</strong><small>${escapeHtml(r.display_name)}</small></button>`).join('');
+                results.querySelectorAll('[data-geo-result]').forEach((b,i)=>b.addEventListener('click',()=>{
+                  const r=found[i],lat=Number(r.lat),lng=Number(r.lon);
+                  if(!validCoords(lat,lng))return;
+                  const map=config.mapName==='wishlist'?wishlistMap:visitedMap;
+                  const old=config.mapName==='wishlist'?wishlistFocusMarker:visitedFocusMarker;
+                  if(old)map.removeLayer(old);
+                  switchTab('map');
+                  setTimeout(()=>{map.invalidateSize();map.flyTo([lat,lng],16,{duration:.5});const marker=L.marker([lat,lng]).addTo(map).bindPopup(popupHtml(r.name||r.display_name.split(',')[0],lat,lng)).openPopup();if(config.mapName==='wishlist')wishlistFocusMarker=marker;else visitedFocusMarker=marker;},120);
+                }));
+              } else {
+                results.innerHTML='<p class="map-search-message">검색 결과가 없어요. 다른 장소 이름으로 검색해 주세요.</p>';
+              }
             }
           }
         }catch(err){results.innerHTML=`<p class="map-search-message">${escapeHtml(err.message||'검색 중 오류가 발생했어요.')}</p>`;}
