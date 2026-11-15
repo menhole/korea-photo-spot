@@ -383,6 +383,100 @@
       if(isWishlist)wishlistFocusMarker=selected;else visitedFocusMarker=selected;
     },120);
   }
+
+  // 지도 검색: 저장된 장소/일기의 이름과 태그를 검색하고, 일반 장소는 지도 검색 API로 찾습니다.
+  (function addMapSearchUI(){
+    const style=document.createElement('style');
+    style.textContent=`
+      .map-search-panel{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px;padding:10px;border:1px solid var(--line,#d9dee8);border-radius:12px;background:var(--surface,#fff)}
+      .map-search-panel select,.map-search-panel input{min-width:0;min-height:40px;padding:8px 10px;border:1px solid var(--line,#cbd5e1);border-radius:8px;background:var(--surface,#fff);color:inherit;font:inherit}
+      .map-search-panel input{flex:1 1 150px}
+      .map-search-panel select{flex:0 1 100px}
+      .map-search-panel button{min-height:40px;padding:8px 13px;border:0;border-radius:8px;background:var(--accent,#334155);color:white;font:inherit;cursor:pointer}
+      .map-search-results{flex:1 0 100%;display:grid;gap:6px;max-height:190px;overflow:auto}
+      .map-search-result{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:9px 11px;border:1px solid var(--line,#ddd)!important;border-radius:8px;background:var(--surface-2,#f8fafc)!important;color:inherit!important;text-align:left;cursor:pointer}
+      .map-search-result small{opacity:.72}
+      .map-search-message{flex:1 0 100%;margin:0;font-size:.88rem;color:var(--muted,#64748b)}
+      @media(max-width:520px){.map-search-panel select{flex:1 1 100px}.map-search-panel button{flex:0 0 auto}}
+    `;
+    document.head.appendChild(style);
+
+    const configs=[
+      {id:'wishlistMap',mapName:'wishlist',mapLabel:'가고 싶은 곳'},
+      {id:'visitedMap',mapName:'visited',mapLabel:'다녀온 곳'}
+    ];
+    configs.forEach(config=>{
+      const mapEl=$(config.id);
+      if(!mapEl || mapEl.dataset.searchReady==='1') return;
+      mapEl.dataset.searchReady='1';
+      const panel=document.createElement('div');
+      panel.className='map-search-panel';
+      panel.innerHTML=`
+        <select aria-label="검색 종류" class="map-search-kind">
+          <option value="place">장소</option>
+          <option value="tag">태그</option>
+        </select>
+        <input class="map-search-input" type="search" placeholder="장소 이름 또는 태그 검색" autocomplete="off">
+        <button type="button" class="map-search-submit">검색</button>
+        <div class="map-search-results" aria-live="polite"></div>`;
+      mapEl.parentElement.insertBefore(panel,mapEl);
+      const input=panel.querySelector('.map-search-input');
+      const kind=panel.querySelector('.map-search-kind');
+      const results=panel.querySelector('.map-search-results');
+      const submit=panel.querySelector('.map-search-submit');
+
+      async function search(){
+        const q=input.value.trim();
+        results.innerHTML='';
+        if(!q){results.innerHTML='<p class="map-search-message">검색어를 입력해 주세요.</p>';return;}
+        submit.disabled=true;submit.textContent='검색 중...';
+        try{
+          if(kind.value==='tag'){
+            const records=[
+              ...myPlaces.filter(p=>config.mapName==='wishlist'?p.status==='wishlist':p.status==='visited').map(p=>({name:p.name,lat:p.lat,lng:p.lng,tags:p.tags||[],detail:p.region||p.category||'저장한 장소',type:'place'})),
+              ...(config.mapName==='visited'?diaries.map(d=>({name:d.place_name,lat:d.lat,lng:d.lng,tags:d.tags||[],detail:d.visited_on||'방문 일기',type:'diary'})):[ ])
+            ];
+            const matches=records.filter(r=>(r.tags||[]).some(t=>String(t).toLowerCase().includes(q.toLowerCase())));
+            results.innerHTML=matches.length?matches.map((r,i)=>`<button type="button" class="map-search-result" data-local-result="${i}"><strong>${escapeHtml(r.name)}</strong><small>${escapeHtml((r.tags||[]).map(t=>'#'+t).join(' '))} · ${escapeHtml(r.detail)}</small></button>`).join(''):'<p class="map-search-message">해당 태그가 붙은 저장 장소가 없어요.</p>';
+            results.querySelectorAll('[data-local-result]').forEach((b,i)=>b.addEventListener('click',()=>{
+              const r=matches[i];showOnMap(config.mapName==='wishlist'?wishlistMap:visitedMap,r.lat,r.lng,r.name,config.mapName==='wishlist'?wishlistMarkers:visitedMarkers);
+            }));
+          }else{
+            const records=[
+              ...myPlaces.filter(p=>config.mapName==='wishlist'?p.status==='wishlist':p.status==='visited').map(p=>({name:p.name,lat:p.lat,lng:p.lng,tags:p.tags||[],detail:p.region||p.category||'저장한 장소'})),
+              ...(config.mapName==='visited'?diaries.map(d=>({name:d.place_name,lat:d.lat,lng:d.lng,tags:d.tags||[],detail:d.visited_on||'방문 일기'})):[ ])
+            ];
+            const local=records.filter(r=>`${r.name} ${r.detail} ${(r.tags||[]).join(' ')}`.toLowerCase().includes(q.toLowerCase())&&validCoords(r.lat,r.lng));
+            if(local.length){
+              results.innerHTML=local.map((r,i)=>`<button type="button" class="map-search-result" data-local-result="${i}"><strong>${escapeHtml(r.name)}</strong><small>${escapeHtml(r.detail)}</small></button>`).join('');
+              results.querySelectorAll('[data-local-result]').forEach((b,i)=>b.addEventListener('click',()=>{
+                const r=local[i];showOnMap(config.mapName==='wishlist'?wishlistMap:visitedMap,r.lat,r.lng,r.name,config.mapName==='wishlist'?wishlistMarkers:visitedMarkers);
+              }));
+            }else{
+              results.innerHTML='<p class="map-search-message">장소를 찾고 있어요...</p>';
+              const response=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=7&q=${encodeURIComponent(q)}`,{headers:{'Accept':'application/json'}});
+              if(!response.ok) throw new Error('지도 검색 서비스에 연결하지 못했어요.');
+              const found=await response.json();
+              results.innerHTML=found.length?found.map((r,i)=>`<button type="button" class="map-search-result" data-geo-result="${i}"><strong>${escapeHtml(r.name||r.display_name.split(',')[0])}</strong><small>${escapeHtml(r.display_name)}</small></button>`).join(''):'<p class="map-search-message">검색 결과가 없어요. 다른 장소 이름으로 검색해 주세요.</p>';
+              results.querySelectorAll('[data-geo-result]').forEach((b,i)=>b.addEventListener('click',()=>{
+                const r=found[i],lat=Number(r.lat),lng=Number(r.lon);
+                if(!validCoords(lat,lng))return;
+                const map=config.mapName==='wishlist'?wishlistMap:visitedMap;
+                const old=config.mapName==='wishlist'?wishlistFocusMarker:visitedFocusMarker;
+                if(old)map.removeLayer(old);
+                switchTab('map');
+                setTimeout(()=>{map.invalidateSize();map.flyTo([lat,lng],16,{duration:.5});const marker=L.marker([lat,lng]).addTo(map).bindPopup(popupHtml(r.name||r.display_name.split(',')[0],lat,lng)).openPopup();if(config.mapName==='wishlist')wishlistFocusMarker=marker;else visitedFocusMarker=marker;},120);
+              }));
+            }
+          }
+        }catch(err){results.innerHTML=`<p class="map-search-message">${escapeHtml(err.message||'검색 중 오류가 발생했어요.')}</p>`;}
+        finally{submit.disabled=false;submit.textContent='검색';}
+      }
+      submit.addEventListener('click',search);
+      input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();search();}});
+    });
+  })();
+
   document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
 
   // 테마 설정은 이 기기의 브라우저에 저장되어 다음 방문에도 유지됩니다.
@@ -409,7 +503,7 @@
 
     const style = document.createElement('style');
     style.textContent = `
-      #settingsOpen{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;min-width:36px;padding:0;margin-left:5px;border:1px solid var(--line,#d9dee8);border-radius:50%;background:transparent;color:var(--text,#334155);font-size:17px;line-height:1;cursor:pointer;box-shadow:none;vertical-align:middle}
+      #settingsOpen{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:7px 13px;margin-left:6px;border:1px solid var(--line,#d9dee8);border-radius:9px;background:var(--surface,#fff);color:var(--text,#334155);font-size:14px;font-weight:600;line-height:1.2;cursor:pointer;box-shadow:none;vertical-align:middle}
       #settingsOpen:hover{background:var(--surface-2,#f1f5f9);border-color:var(--accent,#94a3b8)}
       #settingsOpen:focus-visible{outline:2px solid var(--accent,#64748b);outline-offset:2px}
       #logoutBtn{display:none!important}
@@ -440,7 +534,7 @@
     const button = document.createElement('button');
     button.id = 'settingsOpen';
     button.type = 'button';
-    button.textContent = '⚙ 설정';
+    button.textContent = '설정';
     button.setAttribute('aria-label','앱 설정 열기');
     anchor.insertAdjacentElement('afterend', button);
 
