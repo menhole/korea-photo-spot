@@ -16,6 +16,7 @@
   let user = null, wishlistMap, visitedMap;
   let wishlistPoint = null, diaryPoint = null;
   let wishlistMarkers = [], visitedMarkers = [];
+  let wishlistDraftMarker = null, diaryDraftMarker = null;
   let myPlaces = [], diaries = [], catalog = [], notes = [], buckets = [], events = [];
   let bucketFilter='all', calendarCursor=new Date(), selectedCalendarDate=new Date().toISOString().slice(0,10), calendarPickerMode='calendar';
   let selectedTag = 'all';
@@ -38,10 +39,56 @@
     if(fn)m.on('click',fn); list.push(m);
   }
   function initMaps(){
-    wishlistMap=makeMap('wishlistMap'); visitedMap=makeMap('visitedMap');
-    wishlistMap.on('click',e=>{wishlistPoint={lat:e.latlng.lat,lng:e.latlng.lng};$('placeCoords').textContent=`선택 위치: ${wishlistPoint.lat.toFixed(5)}, ${wishlistPoint.lng.toFixed(5)}`;});
-    visitedMap.on('click',e=>{diaryPoint={lat:e.latlng.lat,lng:e.latlng.lng};$('diaryCoords').textContent=`선택 위치: ${diaryPoint.lat.toFixed(5)}, ${diaryPoint.lng.toFixed(5)}`;});
+    wishlistMap=makeMap('wishlistMap');
+    visitedMap=makeMap('visitedMap');
+
+    wishlistMap.on('click',e=>{
+      wishlistPoint={lat:e.latlng.lat,lng:e.latlng.lng};
+      if(wishlistDraftMarker) wishlistMap.removeLayer(wishlistDraftMarker);
+
+      wishlistDraftMarker=L.marker(e.latlng)
+        .addTo(wishlistMap)
+        .bindPopup(`<strong>저장할 위치</strong><br>${wishlistPoint.lat.toFixed(5)}, ${wishlistPoint.lng.toFixed(5)}`)
+        .openPopup();
+
+      $('placeCoords').textContent=
+        `선택 위치: ${wishlistPoint.lat.toFixed(5)}, ${wishlistPoint.lng.toFixed(5)}`;
+
+      if(user){
+        $('placeDialog').showModal();
+      } else {
+        $('authDialog').showModal();
+        $('authMessage').textContent='기록을 저장하려면 먼저 로그인해 주세요.';
+      }
+    });
+
+    visitedMap.on('click',e=>{
+      diaryPoint={lat:e.latlng.lat,lng:e.latlng.lng};
+      if(diaryDraftMarker) visitedMap.removeLayer(diaryDraftMarker);
+
+      diaryDraftMarker=L.marker(e.latlng)
+        .addTo(visitedMap)
+        .bindPopup(`<strong>방문 위치</strong><br>${diaryPoint.lat.toFixed(5)}, ${diaryPoint.lng.toFixed(5)}`)
+        .openPopup();
+
+      $('diaryCoords').textContent=
+        `선택 위치: ${diaryPoint.lat.toFixed(5)}, ${diaryPoint.lng.toFixed(5)}`;
+    });
   }
+  function updateTabletMapHeight(){
+    const tablet=window.matchMedia('(min-width:701px) and (max-width:1100px)').matches;
+
+    ['wishlistMap','visitedMap'].forEach(id=>{
+      const el=$(id);
+      if(el) el.style.height=tablet?'400px':'';
+    });
+
+    wishlistMap?.invalidateSize();
+    visitedMap?.invalidateSize();
+  }
+
+  window.addEventListener('resize',updateTabletMapHeight);
+
   function switchTab(name){
     document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
@@ -49,15 +96,33 @@
     setTimeout(()=>{if(name==='map'){wishlistMap?.invalidateSize();visitedMap?.invalidateSize();}},80);
   }
   async function authRefresh(){
-    if(!sb){$('authStatus').textContent='설정 필요';$('authOpen').classList.remove('hidden');$('logoutBtn').classList.add('hidden');return;}
-    const {data}=await sb.auth.getSession(); user=data.session?.user||null;
-    $('authStatus').textContent=user?(user.user_metadata?.username || '로그인됨'):'로그인 전';
-    $('authOpen').classList.toggle('hidden',!!user); $('logoutBtn').classList.toggle('hidden',!user);
+    if(!sb){
+      $('authStatus').textContent='설정 필요';
+      $('authOpen').classList.remove('hidden');
+      $('logoutBtn').classList.add('hidden');
+      $('authStatus').style.display='inline-block';
+      return;
+    }
+
+    const {data}=await sb.auth.getSession();
+    user=data.session?.user||null;
+
+    $('authStatus').textContent=
+      user?(user.user_metadata?.username || '로그인됨'):'로그인 전';
+
+    $('authStatus').style.display='inline-block';
+    $('authStatus').style.maxWidth='100px';
+    $('authStatus').style.overflow='hidden';
+    $('authStatus').style.textOverflow='ellipsis';
+    $('authStatus').style.whiteSpace='nowrap';
+
+    $('authOpen').classList.toggle('hidden',!!user);
+    $('logoutBtn').classList.toggle('hidden',!user);
   }
   function usernameToAuthEmail(username){
     // Supabase Auth requires an email identifier. This reserved .invalid address is
     // generated internally; the user never enters or receives an email address.
-    return `psk_${username.toLowerCase()}@photospot.invalid`;
+    return `psk_${username.toLowerCase()}@example.com`;
   }
   async function authAction(mode){
     if(!sb){
@@ -216,11 +281,36 @@
     if(error){toast('저장 실패: '+error.message);return;} $('detailDialog').close();await loadPrivateData();toast('가고 싶은 곳에 저장했어요.');
   }
   async function saveWishlist(e){
-    e.preventDefault();if(!requireLogin())return;
-    const name=$('placeName').value.trim();if(!name)return;
-    const row={user_id:user.id,name,region:$('placeRegion').value.trim(),category:$('placeCategory').value,note:$('placeNote').value.trim(),tags:tagsFrom($('placeTags').value),status:'wishlist',lat:wishlistPoint?.lat??null,lng:wishlistPoint?.lng??null};
-    const {error}=await sb.from('my_places').insert(row);if(error){toast('저장 실패: '+error.message);return;}
-    $('placeForm').reset();wishlistPoint=null;$('placeCoords').textContent='지도를 눌러 위치를 선택해 주세요.';$('placeDialog').close();await loadPrivateData();toast('장소를 저장했어요.');
+    e.preventDefault();
+    if(!requireLogin())return;
+    const name=$('placeName').value.trim();
+    if(!name)return;
+
+    const row={
+      user_id:user.id,
+      name,
+      region:$('placeRegion').value.trim(),
+      category:$('placeCategory').value,
+      note:$('placeNote').value.trim(),
+      tags:tagsFrom($('placeTags').value),
+      status:'wishlist',
+      lat:wishlistPoint?.lat??null,
+      lng:wishlistPoint?.lng??null
+    };
+
+    const {error}=await sb.from('my_places').insert(row);
+    if(error){toast('저장 실패: '+error.message);return;}
+
+    $('placeForm').reset();
+    wishlistPoint=null;
+    if(wishlistDraftMarker){
+      wishlistMap.removeLayer(wishlistDraftMarker);
+      wishlistDraftMarker=null;
+    }
+    $('placeCoords').textContent='지도를 눌러 위치를 선택해 주세요.';
+    $('placeDialog').close();
+    await loadPrivateData();
+    toast('장소를 저장했어요.');
   }
   async function markVisited(id){
     const {error}=await sb.from('my_places').update({status:'visited',visited_at:new Date().toISOString().slice(0,10)}).eq('id',id).eq('user_id',user.id);
@@ -239,7 +329,16 @@
       const file=$('diaryPhoto').files[0];if(file)photoPath=await uploadDiaryPhoto(file);
       const row={user_id:user.id,place_name:$('diaryPlace').value.trim(),visited_on:$('diaryDate').value,body:$('diaryText').value.trim(),tags:tagsFrom($('diaryTags').value),photo_path:photoPath,lat:diaryPoint?.lat??null,lng:diaryPoint?.lng??null};
       const {error}=await sb.from('diary_entries').insert(row);if(error)throw error;
-      $('diaryForm').reset();diaryPoint=null;$('diaryCoords').textContent='선택한 위치: 없음 (방문 장소는 지도에서 선택할 수 있어요.)';$('diaryDialog').close();await loadPrivateData();toast('방문 일기를 저장했어요.');
+      $('diaryForm').reset();
+      diaryPoint=null;
+      if(diaryDraftMarker){
+        visitedMap.removeLayer(diaryDraftMarker);
+        diaryDraftMarker=null;
+      }
+      $('diaryCoords').textContent='선택한 위치: 없음 (방문 장소는 지도에서 선택할 수 있어요.)';
+      $('diaryDialog').close();
+      await loadPrivateData();
+      toast('방문 일기를 저장했어요.');
     }catch(err){if(photoPath)await sb.storage.from(DIARY_BUCKET).remove([photoPath]);toast('일기 저장 실패: '+err.message);}
   }
   async function deleteDiary(id){if(!confirm('이 일기를 삭제할까요?'))return;const d=diaries.find(x=>x.id===id);const {error}=await sb.from('diary_entries').delete().eq('id',id).eq('user_id',user.id);if(error){toast(error.message);return;}if(d?.photo_path)await sb.storage.from(DIARY_BUCKET).remove([d.photo_path]);await loadPrivateData();}
@@ -259,7 +358,6 @@
     if(t.dataset.deletediary)deleteDiary(t.dataset.deletediary);
     if(t.dataset.savecatalog){const s=catalog.find(x=>x.id===t.dataset.savecatalog);if(s)saveCatalog(s);}
     if(t.dataset.savelive){const s=liveCatalog.find(x=>x.id===t.dataset.savelive);if(s)saveCatalog(s);}
-    
   });
   $('addNoteBtn').onclick=()=>{if(requireLogin())$('noteDialog').showModal();};$('saveQuickNote').onclick=saveQuickNote;$('noteForm').addEventListener('submit',saveNote);
   $('addBucketBtn').onclick=()=>{if(requireLogin())$('bucketDialog').showModal();};$('bucketForm').addEventListener('submit',saveBucket);
@@ -270,7 +368,34 @@
   document.querySelectorAll('[data-bucket-filter]').forEach(b=>b.onclick=()=>{bucketFilter=b.dataset.bucketFilter;document.querySelectorAll('[data-bucket-filter]').forEach(x=>x.classList.toggle('active',x===b));renderBuckets();});
   document.addEventListener('click',e=>{const t=e.target.closest('[data-selectdate],[data-calendar-month],[data-calendar-year],[data-deletenote],[data-deletebucket],[data-deleteevent]');if(!t)return;if(t.dataset.selectdate){selectedCalendarDate=t.dataset.selectdate;renderCalendar();}if(t.dataset.calendarMonth!==undefined){calendarCursor.setMonth(Number(t.dataset.calendarMonth));calendarPickerMode='calendar';renderCalendar();}if(t.dataset.calendarYear){calendarCursor.setFullYear(Number(t.dataset.calendarYear));calendarPickerMode='month';renderCalendar();}if(t.dataset.deletenote)deleteOwned('travel_notes',t.dataset.deletenote);if(t.dataset.deletebucket)deleteOwned('travel_buckets',t.dataset.deletebucket);if(t.dataset.deleteevent)deleteOwned('travel_events',t.dataset.deleteevent);});
   document.addEventListener('change',e=>{const t=e.target.closest('[data-togglebucket]');if(t)toggleBucket(t.dataset.togglebucket,t.checked);});
+  // 모바일 키보드가 입력창을 가리지 않도록 입력 요소와 대화상자를 조정합니다.
+  function keepInputVisible(target){
+    if(!target || !target.matches('input, textarea, select, [contenteditable="true"]')) return;
+
+    const updatePosition=()=>{
+      const dialog=target.closest('dialog');
+      if(dialog && window.visualViewport){
+        dialog.style.maxHeight=Math.max(220,window.visualViewport.height-24)+'px';
+        dialog.style.overflowY='auto';
+        dialog.style.webkitOverflowScrolling='touch';
+      }
+      target.scrollIntoView({behavior:'smooth',block:'center',inline:'nearest'});
+    };
+
+    setTimeout(updatePosition,120);
+    setTimeout(updatePosition,350);
+    setTimeout(updatePosition,650);
+  }
+
+  document.addEventListener('focusin',e=>keepInputVisible(e.target));
+
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize',()=>keepInputVisible(document.activeElement));
+    window.visualViewport.addEventListener('scroll',()=>keepInputVisible(document.activeElement));
+  }
+
   initMaps();
+  updateTabletMapHeight();
   if(sb){authRefresh().then(loadPrivateData);sb.auth.onAuthStateChange(async()=>{await authRefresh();await loadPrivateData();});}
   else{toast('시작하려면 기존 config.js에 Supabase URL과 Publishable key가 설정되어 있어야 해요.');renderAll();}
 })();
