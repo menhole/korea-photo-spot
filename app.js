@@ -136,8 +136,6 @@
     $('logoutBtn').classList.toggle('hidden',!user);
   }
   function usernameToAuthEmail(username){
-    // Supabase Auth requires an email identifier. This reserved .invalid address is
-    // generated internally; the user never enters or receives an email address.
     return `psk_${username.toLowerCase()}@example.com`;
   }
   async function authAction(mode){
@@ -298,7 +296,9 @@
   }
   async function saveCatalog(s){
     if(!requireLogin())return;
-    const {error}=await sb.from('my_places').insert({user_id:user.id,name:String(s.name||'').slice(0,100),region:s.region,category:s.category,note:[s.description,s.url?`출처: ${s.url}`:''].filter(Boolean).join('\n\n'),status:'wishlist',lat:s.lat??null,lng:s.lng??null,tags:s.tags||[]});
+    const {error}=await sb.from('my_places').insert({user_id:user.id,name:String(s.name||'').slice(0,100),region:s.region,category:s.category,note:[s.description,s.url?`출처: ${s.url}`:''].filter(Boolean).join('
+
+'),status:'wishlist',lat:s.lat??null,lng:s.lng??null,tags:s.tags||[]});
     if(error){toast('저장 실패: '+error.message);return;} $('detailDialog').close();await loadPrivateData();toast('가고 싶은 곳에 저장했어요.');
   }
   async function saveWishlist(e){
@@ -597,14 +597,12 @@
     status.textContent = '저장된 사진과 기록을 삭제하고 있어요. 창을 닫지 말아 주세요.';
 
     try {
-      // 먼저 현재 계정의 일기 사진을 제거합니다.
       const photoPaths = diaries.map(d=>d.photo_path).filter(Boolean);
       if(photoPaths.length){
         const {error:storageError} = await sb.storage.from(DIARY_BUCKET).remove(photoPaths);
         if(storageError) throw new Error('일기 사진 삭제 실패: '+storageError.message);
       }
 
-      // RLS와 user_id 조건을 이용해 현재 로그인 계정의 데이터만 삭제합니다.
       const tables = ['diary_entries','my_places','travel_notes','travel_buckets','travel_events'];
       for(const table of tables){
         const {error} = await sb.from(table).delete().eq('user_id',user.id);
@@ -643,7 +641,6 @@
   $('addWishlistBtn').onclick=()=>{if(requireLogin()){$('placeCoords').textContent='지도에서 위치를 선택하거나 비워 둘 수 있어요.';$('placeDialog').showModal();}};
   $('addDiaryBtn').onclick=()=>{if(requireLogin()){$('diaryDate').value=new Date().toISOString().slice(0,10);$('diaryDialog').showModal();}};
   $('placeForm').addEventListener('submit',saveWishlist);$('diaryForm').addEventListener('submit',saveDiary);
-  // 취소, ESC, 닫기 버튼으로 대화상자를 닫아도 저장 전 임시 마커를 제거합니다.
   $('placeDialog').addEventListener('close',()=>{
     if(wishlistDraftMarker){
       wishlistMap?.removeLayer(wishlistDraftMarker);
@@ -679,7 +676,6 @@
   document.querySelectorAll('[data-bucket-filter]').forEach(b=>b.onclick=()=>{bucketFilter=b.dataset.bucketFilter;document.querySelectorAll('[data-bucket-filter]').forEach(x=>x.classList.toggle('active',x===b));renderBuckets();});
   document.addEventListener('click',e=>{const t=e.target.closest('[data-selectdate],[data-calendar-month],[data-calendar-year],[data-deletenote],[data-deletebucket],[data-deleteevent]');if(!t)return;if(t.dataset.selectdate){selectedCalendarDate=t.dataset.selectdate;renderCalendar();}if(t.dataset.calendarMonth!==undefined){calendarCursor.setMonth(Number(t.dataset.calendarMonth));calendarPickerMode='calendar';renderCalendar();}if(t.dataset.calendarYear){calendarCursor.setFullYear(Number(t.dataset.calendarYear));calendarPickerMode='month';renderCalendar();}if(t.dataset.deletenote)deleteOwned('travel_notes',t.dataset.deletenote);if(t.dataset.deletebucket)deleteOwned('travel_buckets',t.dataset.deletebucket);if(t.dataset.deleteevent)deleteOwned('travel_events',t.dataset.deleteevent);});
   document.addEventListener('change',e=>{const t=e.target.closest('[data-togglebucket]');if(t)toggleBucket(t.dataset.togglebucket,t.checked);});
-  // 모바일 키보드가 입력창을 가리지 않도록 대화상자와 입력 위치를 조정합니다.
   function keepInputVisible(target){
     if(!target || !target.matches('input, textarea, select, [contenteditable="true"]')) return;
     const updatePosition=()=>{
