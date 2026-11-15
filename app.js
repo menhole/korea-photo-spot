@@ -389,6 +389,23 @@
   $('addWishlistBtn').onclick=()=>{if(requireLogin()){$('placeCoords').textContent='지도에서 위치를 선택하거나 비워 둘 수 있어요.';$('placeDialog').showModal();}};
   $('addDiaryBtn').onclick=()=>{if(requireLogin()){$('diaryDate').value=new Date().toISOString().slice(0,10);$('diaryDialog').showModal();}};
   $('placeForm').addEventListener('submit',saveWishlist);$('diaryForm').addEventListener('submit',saveDiary);
+  // 취소, ESC, 닫기 버튼으로 대화상자를 닫아도 저장 전 임시 마커를 제거합니다.
+  $('placeDialog').addEventListener('close',()=>{
+    if(wishlistDraftMarker){
+      wishlistMap?.removeLayer(wishlistDraftMarker);
+      wishlistDraftMarker=null;
+    }
+    wishlistPoint=null;
+    $('placeCoords').textContent='지도를 눌러 위치를 선택해 주세요.';
+  });
+  $('diaryDialog').addEventListener('close',()=>{
+    if(diaryDraftMarker){
+      visitedMap?.removeLayer(diaryDraftMarker);
+      diaryDraftMarker=null;
+    }
+    diaryPoint=null;
+    $('diaryCoords').textContent='선택한 위치: 없음 (방문 장소는 지도에서 선택할 수 있어요.)';
+  });
   document.addEventListener('click',e=>{
     const t=e.target.closest('[data-visit],[data-deleteplace],[data-showplace],[data-showdiary],[data-deletediary],[data-savecatalog],[data-savelive]');if(!t)return;
     if(t.dataset.visit)markVisited(t.dataset.visit);
