@@ -392,7 +392,10 @@
 
     const style = document.createElement('style');
     style.textContent = `
-      #settingsOpen{border:1px solid var(--line,#ddd);background:var(--surface,#fff);color:inherit;border-radius:999px;padding:9px 13px;font:inherit;cursor:pointer;margin-left:6px}
+      #settingsOpen{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;min-width:36px;padding:0;margin-left:5px;border:1px solid var(--line,#d9dee8);border-radius:50%;background:transparent;color:var(--text,#334155);font-size:17px;line-height:1;cursor:pointer;box-shadow:none;vertical-align:middle}
+      #settingsOpen:hover{background:var(--surface-2,#f1f5f9);border-color:var(--accent,#94a3b8)}
+      #settingsOpen:focus-visible{outline:2px solid var(--accent,#64748b);outline-offset:2px}
+      #logoutBtn{display:none!important}
       #settingsDialog{width:min(92vw,480px);border:0;border-radius:18px;padding:22px;background:var(--surface,#fff);color:var(--text,#222);box-shadow:0 18px 60px #0003}
       #settingsDialog::backdrop{background:#0008}
       #settingsDialog h2{margin:0 0 12px;font-size:1.25rem}
@@ -421,6 +424,7 @@
       <p><strong>계정과 로그인 정보는 삭제되지 않습니다.</strong> 초기화 후에도 같은 아이디로 로그인할 수 있지만, 삭제된 기록은 복구할 수 없습니다.</p>
       <div id="settingsResetStatus" role="status"></div>
       <div class="settings-actions">
+        <button type="button" class="settings-close" id="settingsLogout">로그아웃</button>
         <button type="button" class="settings-close" id="settingsClose">닫기</button>
         <button type="button" class="settings-danger" id="settingsResetAll">전체 데이터 초기화</button>
       </div>`;
@@ -432,6 +436,17 @@
       dialog.showModal();
     });
     $('settingsClose').addEventListener('click',()=>dialog.close());
+    $('settingsLogout').addEventListener('click',async()=>{
+      if(!sb) return;
+      const confirmed=window.confirm('로그아웃할까요?');
+      if(!confirmed) return;
+      const {error}=await sb.auth.signOut();
+      if(error){toast('로그아웃하지 못했어요: '+error.message);return;}
+      dialog.close();
+      await authRefresh();
+      await loadPrivateData();
+      toast('로그아웃했어요.');
+    });
     $('settingsResetAll').addEventListener('click',resetAllAccountData);
   })();
 
