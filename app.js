@@ -385,6 +385,23 @@
   }
   document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
 
+  // 테마 설정은 이 기기의 브라우저에 저장되어 다음 방문에도 유지됩니다.
+  function getSavedTheme(){
+    try{return localStorage.getItem('photoSpotTheme')||'system';}catch(_){return 'system';}
+  }
+  function applyAppTheme(theme,save=false){
+    const selected=['light','dark','system'].includes(theme)?theme:'system';
+    const dark=selected==='dark'||(selected==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.appTheme=dark?'dark':'light';
+    if(save){try{localStorage.setItem('photoSpotTheme',selected);}catch(_){toast('테마 설정을 기기에 저장하지 못했어요.');}}
+  }
+  applyAppTheme(getSavedTheme());
+  try{
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{
+      if(getSavedTheme()==='system') applyAppTheme('system');
+    });
+  }catch(_){}
+
   // 설정 버튼과 전체 데이터 초기화 화면을 앱 스크립트에서 생성합니다.
   (function addSettingsUI(){
     const anchor = $('authOpen');
@@ -404,6 +421,18 @@
       #settingsDialog button{border:0;border-radius:10px;padding:10px 14px;font:inherit;cursor:pointer}
       #settingsDialog .settings-close{background:#eee;color:#222}
       #settingsDialog .settings-danger{background:#c62828;color:white}
+      #settingsDialog .settings-theme-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-top:1px solid var(--line,#ddd);border-bottom:1px solid var(--line,#ddd)}
+      #settingsDialog .settings-theme-row label{font-weight:600}
+      #settingsTheme{min-width:132px;padding:9px 11px;border:1px solid var(--line,#bbb);border-radius:9px;background:var(--surface,#fff);color:inherit;font:inherit}
+      html[data-app-theme="dark"]{color-scheme:dark}
+      html[data-app-theme="dark"] body{background:#111827!important;color:#e5e7eb!important}
+      html[data-app-theme="dark"] header,html[data-app-theme="dark"] nav,html[data-app-theme="dark"] .topbar,html[data-app-theme="dark"] .panel,html[data-app-theme="dark"] .card,html[data-app-theme="dark"] .place-card,html[data-app-theme="dark"] .diary-card,html[data-app-theme="dark"] .note-card,html[data-app-theme="dark"] .bucket-card,html[data-app-theme="dark"] .calendar-wrap,html[data-app-theme="dark"] .calendar,html[data-app-theme="dark"] .view,html[data-app-theme="dark"] .tab-bar{background-color:#1f2937!important;color:#e5e7eb!important;border-color:#374151!important}
+      html[data-app-theme="dark"] h1,html[data-app-theme="dark"] h2,html[data-app-theme="dark"] h3,html[data-app-theme="dark"] h4,html[data-app-theme="dark"] p,html[data-app-theme="dark"] label,html[data-app-theme="dark"] .fine,html[data-app-theme="dark"] .empty{color:inherit}
+      html[data-app-theme="dark"] input,html[data-app-theme="dark"] textarea,html[data-app-theme="dark"] select,html[data-app-theme="dark"] button:not(.settings-danger){background-color:#273449!important;color:#e5e7eb!important;border-color:#4b5563!important}
+      html[data-app-theme="dark"] a{color:#93c5fd}
+      html[data-app-theme="dark"] .tag{background:#374151!important;color:#e5e7eb!important}
+      html[data-app-theme="dark"] #settingsDialog{background:#1f2937;color:#e5e7eb}
+      html[data-app-theme="dark"] #settingsDialog .settings-close{background:#374151;color:#e5e7eb}
       #settingsResetStatus{min-height:1.4em;color:#b3261e;font-size:.9rem}
     `;
     document.head.appendChild(style);
@@ -419,7 +448,15 @@
     dialog.id = 'settingsDialog';
     dialog.innerHTML = `
       <h2>앱 설정</h2>
-      <p>현재 설정할 수 있는 항목은 계정 데이터 전체 초기화입니다.</p>
+      <p>앱 화면과 계정 설정을 관리할 수 있어요.</p>
+      <div class="settings-theme-row">
+        <label for="settingsTheme">화면 테마</label>
+        <select id="settingsTheme" aria-label="화면 테마 선택">
+          <option value="light">라이트 모드</option>
+          <option value="dark">다크 모드</option>
+          <option value="system">기기 설정 따르기</option>
+        </select>
+      </div>
       <p><strong>초기화되는 데이터</strong><br>가고 싶은 곳, 다녀온 곳, 방문 일기와 사진, 메모, 버킷리스트, 일정</p>
       <p><strong>계정과 로그인 정보는 삭제되지 않습니다.</strong> 초기화 후에도 같은 아이디로 로그인할 수 있지만, 삭제된 기록은 복구할 수 없습니다.</p>
       <div id="settingsResetStatus" role="status"></div>
@@ -433,8 +470,10 @@
     button.addEventListener('click',()=>{
       if(!user){ $('authDialog').showModal(); $('authMessage').textContent='설정을 이용하려면 먼저 로그인해 주세요.'; return; }
       $('settingsResetStatus').textContent='';
+      $('settingsTheme').value=getSavedTheme();
       dialog.showModal();
     });
+    $('settingsTheme').addEventListener('change',e=>applyAppTheme(e.target.value,true));
     $('settingsClose').addEventListener('click',()=>dialog.close());
     $('settingsLogout').addEventListener('click',async()=>{
       if(!sb) return;
