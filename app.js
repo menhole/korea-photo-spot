@@ -515,6 +515,38 @@
     });
   }catch(_){}
 
+  // PWA(웹앱 설치) 지원 및 Service Worker 등록
+  let deferredInstallPrompt = null;
+  (function initPWA(){
+    if (!document.querySelector('link[rel="manifest"]')) {
+      const link = document.createElement('link');
+      link.rel = 'manifest';
+      link.href = 'manifest.json';
+      document.head.appendChild(link);
+    }
+    if (!document.querySelector('meta[name="apple-mobile-web-app-capable"]')) {
+      const meta1 = document.createElement('meta');
+      meta1.name = 'apple-mobile-web-app-capable';
+      meta1.content = 'yes';
+      document.head.appendChild(meta1);
+
+      const meta2 = document.createElement('meta');
+      meta2.name = 'apple-mobile-web-app-status-bar-style';
+      meta2.content = 'default';
+      document.head.appendChild(meta2);
+    }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(err => console.warn('SW 등록 생략:', err));
+    }
+  })();
+
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const installRow = $('settingsInstallRow');
+    if (installRow) installRow.style.display = 'flex';
+  });
+
   // 설정 버튼과 전체 데이터 초기화 화면을 앱 스크립트에서 생성합니다.
   (function addSettingsUI(){
     const anchor = $('authOpen');
@@ -533,6 +565,7 @@
       #settingsDialog .settings-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:20px}
       #settingsDialog button{border:0;border-radius:10px;padding:10px 14px;font:inherit;cursor:pointer}
       #settingsDialog .settings-close{background:#eee;color:#222}
+      #settingsDialog .settings-install{background:#2563eb;color:white;font-weight:600}
       #settingsDialog .settings-danger{background:#c62828;color:white}
       #settingsDialog .settings-theme-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-top:1px solid var(--line,#ddd);border-bottom:1px solid var(--line,#ddd)}
       #settingsDialog .settings-theme-row label{font-weight:600}
@@ -541,7 +574,7 @@
       html[data-app-theme="dark"] body{background:#111827!important;color:#e5e7eb!important}
       html[data-app-theme="dark"] header,html[data-app-theme="dark"] nav,html[data-app-theme="dark"] .topbar,html[data-app-theme="dark"] .panel,html[data-app-theme="dark"] .card,html[data-app-theme="dark"] .place-card,html[data-app-theme="dark"] .diary-card,html[data-app-theme="dark"] .note-card,html[data-app-theme="dark"] .bucket-card,html[data-app-theme="dark"] .calendar-wrap,html[data-app-theme="dark"] .calendar,html[data-app-theme="dark"] .view,html[data-app-theme="dark"] .tab-bar{background-color:#1f2937!important;color:#e5e7eb!important;border-color:#374151!important}
       html[data-app-theme="dark"] h1,html[data-app-theme="dark"] h2,html[data-app-theme="dark"] h3,html[data-app-theme="dark"] h4,html[data-app-theme="dark"] p,html[data-app-theme="dark"] label,html[data-app-theme="dark"] .fine,html[data-app-theme="dark"] .empty{color:inherit}
-      html[data-app-theme="dark"] input,html[data-app-theme="dark"] textarea,html[data-app-theme="dark"] select,html[data-app-theme="dark"] button:not(.settings-danger){background-color:#273449!important;color:#e5e7eb!important;border-color:#4b5563!important}
+      html[data-app-theme="dark"] input,html[data-app-theme="dark"] textarea,html[data-app-theme="dark"] select,html[data-app-theme="dark"] button:not(.settings-danger):not(.settings-install){background-color:#273449!important;color:#e5e7eb!important;border-color:#4b5563!important}
       html[data-app-theme="dark"] a{color:#93c5fd}
       html[data-app-theme="dark"] .tag{background:#374151!important;color:#e5e7eb!important}
       html[data-app-theme="dark"] #settingsDialog{background:#1f2937;color:#e5e7eb}
@@ -570,6 +603,10 @@
           <option value="system">기기 설정 따르기</option>
         </select>
       </div>
+      <div class="settings-theme-row" id="settingsInstallRow" style="display:flex;">
+        <label>스마트폰 앱으로 설치</label>
+        <button type="button" class="settings-install" id="settingsInstallBtn">앱 설치하기</button>
+      </div>
       <p><strong>초기화되는 데이터</strong><br>가고 싶은 곳, 다녀온 곳, 방문 일기와 사진, 메모, 버킷리스트, 일정</p>
       <p><strong>계정과 로그인 정보는 삭제되지 않습니다.</strong> 초기화 후에도 같은 아이디로 로그인할 수 있지만, 삭제된 기록은 복구할 수 없습니다.</p>
       <div id="settingsResetStatus" role="status"></div>
@@ -587,6 +624,16 @@
       dialog.showModal();
     });
     $('settingsTheme').addEventListener('change',e=>applyAppTheme(e.target.value,true));
+    $('settingsInstallBtn').addEventListener('click',async()=>{
+      if(deferredInstallPrompt){
+        deferredInstallPrompt.prompt();
+        const { outcome } = await deferredInstallPrompt.userChoice;
+        if(outcome === 'accepted') toast('앱이 설치되었어요!');
+        deferredInstallPrompt = null;
+      } else {
+        alert('브라우저 메뉴에서 [홈 화면에 추가] 또는 [앱 설치]를 선택하면 스마트폰 앱처럼 사용할 수 있어요!\n(아이폰 Safari: 하단 공유 버튼 → 홈 화면에 추가)');
+      }
+    });
     $('settingsClose').addEventListener('click',()=>dialog.close());
     $('settingsLogout').addEventListener('click',async()=>{
       if(!sb) return;
