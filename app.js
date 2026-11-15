@@ -384,6 +384,112 @@
     },120);
   }
   document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
+
+  // 설정 버튼과 전체 데이터 초기화 화면을 앱 스크립트에서 생성합니다.
+  (function addSettingsUI(){
+    const anchor = $('authOpen');
+    if(!anchor || $('settingsOpen')) return;
+
+    const style = document.createElement('style');
+    style.textContent = `
+      #settingsOpen{border:1px solid var(--line,#ddd);background:var(--surface,#fff);color:inherit;border-radius:999px;padding:9px 13px;font:inherit;cursor:pointer;margin-left:6px}
+      #settingsDialog{width:min(92vw,480px);border:0;border-radius:18px;padding:22px;background:var(--surface,#fff);color:var(--text,#222);box-shadow:0 18px 60px #0003}
+      #settingsDialog::backdrop{background:#0008}
+      #settingsDialog h2{margin:0 0 12px;font-size:1.25rem}
+      #settingsDialog p{line-height:1.6}
+      #settingsDialog .settings-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:20px}
+      #settingsDialog button{border:0;border-radius:10px;padding:10px 14px;font:inherit;cursor:pointer}
+      #settingsDialog .settings-close{background:#eee;color:#222}
+      #settingsDialog .settings-danger{background:#c62828;color:white}
+      #settingsResetStatus{min-height:1.4em;color:#b3261e;font-size:.9rem}
+    `;
+    document.head.appendChild(style);
+
+    const button = document.createElement('button');
+    button.id = 'settingsOpen';
+    button.type = 'button';
+    button.textContent = '⚙ 설정';
+    button.setAttribute('aria-label','앱 설정 열기');
+    anchor.insertAdjacentElement('afterend', button);
+
+    const dialog = document.createElement('dialog');
+    dialog.id = 'settingsDialog';
+    dialog.innerHTML = `
+      <h2>앱 설정</h2>
+      <p>현재 설정할 수 있는 항목은 계정 데이터 전체 초기화입니다.</p>
+      <p><strong>초기화되는 데이터</strong><br>가고 싶은 곳, 다녀온 곳, 방문 일기와 사진, 메모, 버킷리스트, 일정</p>
+      <p><strong>계정과 로그인 정보는 삭제되지 않습니다.</strong> 초기화 후에도 같은 아이디로 로그인할 수 있지만, 삭제된 기록은 복구할 수 없습니다.</p>
+      <div id="settingsResetStatus" role="status"></div>
+      <div class="settings-actions">
+        <button type="button" class="settings-close" id="settingsClose">닫기</button>
+        <button type="button" class="settings-danger" id="settingsResetAll">전체 데이터 초기화</button>
+      </div>`;
+    document.body.appendChild(dialog);
+
+    button.addEventListener('click',()=>{
+      if(!user){ $('authDialog').showModal(); $('authMessage').textContent='설정을 이용하려면 먼저 로그인해 주세요.'; return; }
+      $('settingsResetStatus').textContent='';
+      dialog.showModal();
+    });
+    $('settingsClose').addEventListener('click',()=>dialog.close());
+    $('settingsResetAll').addEventListener('click',resetAllAccountData);
+  })();
+
+  async function resetAllAccountData(){
+    if(!sb || !user){ toast('먼저 로그인해 주세요.'); return; }
+    const first = window.confirm('정말로 계정에 저장된 모든 장소, 일기, 사진, 메모, 버킷리스트와 일정을 삭제할까요? 이 작업은 되돌릴 수 없습니다.');
+    if(!first) return;
+    const second = window.prompt('정말 삭제하려면 "전체 삭제"라고 입력해 주세요.');
+    if(second !== '전체 삭제'){ toast('초기화를 취소했어요.'); return; }
+
+    const resetButton = $('settingsResetAll');
+    const status = $('settingsResetStatus');
+    resetButton.disabled = true;
+    resetButton.textContent = '초기화 중...';
+    status.textContent = '저장된 사진과 기록을 삭제하고 있어요. 창을 닫지 말아 주세요.';
+
+    try {
+      // 먼저 현재 계정의 일기 사진을 제거합니다.
+      const photoPaths = diaries.map(d=>d.photo_path).filter(Boolean);
+      if(photoPaths.length){
+        const {error:storageError} = await sb.storage.from(DIARY_BUCKET).remove(photoPaths);
+        if(storageError) throw new Error('일기 사진 삭제 실패: '+storageError.message);
+      }
+
+      // RLS와 user_id 조건을 이용해 현재 로그인 계정의 데이터만 삭제합니다.
+      const tables = ['diary_entries','my_places','travel_notes','travel_buckets','travel_events'];
+      for(const table of tables){
+        const {error} = await sb.from(table).delete().eq('user_id',user.id);
+        if(error) throw new Error(table+' 삭제 실패: '+error.message);
+      }
+
+      myPlaces=[]; diaries=[]; notes=[]; buckets=[]; events=[]; catalog=[];
+      wishlistPoint=null; diaryPoint=null;
+      if(wishlistDraftMarker){ wishlistMap?.removeLayer(wishlistDraftMarker); wishlistDraftMarker=null; }
+      if(diaryDraftMarker){ visitedMap?.removeLayer(diaryDraftMarker); diaryDraftMarker=null; }
+      renderAll();
+      renderNotes();
+      renderBuckets();
+      renderCalendar();
+      dialogCloseIfOpen('placeDialog');
+      dialogCloseIfOpen('diaryDialog');
+      status.textContent='초기화가 완료됐어요.';
+      toast('계정에 저장된 데이터 전체를 초기화했어요. 로그인은 유지됩니다.');
+      $('settingsDialog').close();
+    } catch(err) {
+      console.error('전체 초기화 오류:',err);
+      status.textContent='초기화 중 오류가 발생했어요: '+(err?.message||'알 수 없는 오류');
+      toast('일부 데이터가 남아 있을 수 있어요. 오류 내용을 확인해 주세요.');
+    } finally {
+      resetButton.disabled = false;
+      resetButton.textContent = '전체 데이터 초기화';
+    }
+  }
+  function dialogCloseIfOpen(id){
+    const el=$(id);
+    if(el?.open) el.close();
+  }
+
   $('authOpen').onclick=()=>$('authDialog').showModal();$('signInBtn').onclick=()=>authAction('signin');$('signUpBtn').onclick=()=>authAction('signup');
   $('logoutBtn').onclick=async()=>{if(sb){await sb.auth.signOut();await authRefresh();await loadPrivateData();toast('로그아웃했어요.');}};
   $('addWishlistBtn').onclick=()=>{if(requireLogin()){$('placeCoords').textContent='지도에서 위치를 선택하거나 비워 둘 수 있어요.';$('placeDialog').showModal();}};
