@@ -57,7 +57,7 @@
   function usernameToAuthEmail(username){
     // Supabase Auth requires an email identifier. This reserved .invalid address is
     // generated internally; the user never enters or receives an email address.
-    return `psk_${username.toLowerCase()}@photospot.invalid`;
+    return `psk_${username.toLowerCase()}@example.com`;
   }
   async function authAction(mode){
     if(!sb){
