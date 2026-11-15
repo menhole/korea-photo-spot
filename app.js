@@ -33,9 +33,22 @@
     return map;
   }
   function clearMarkers(list,map){list.forEach(m=>map.removeLayer(m));list.length=0;}
+  function validCoords(lat,lng){
+    if(lat===null||lat===undefined||lng===null||lng===undefined) return false;
+    if(String(lat).trim()===''||String(lng).trim()==='') return false;
+    const a=Number(lat), b=Number(lng);
+    return Number.isFinite(a)&&Number.isFinite(b)&&a>=-90&&a<=90&&b>=-180&&b<=180;
+  }
+  function routeUrl(lat,lng){
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${Number(lat)},${Number(lng)}`)}`;
+  }
+  function popupHtml(title,lat,lng){
+    return `<strong>${escapeHtml(title||'장소')}</strong><br>${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}<br><a href="${routeUrl(lat,lng)}" target="_blank" rel="noopener noreferrer">길찾기 열기</a>`;
+  }
   function marker(map,list,lat,lng,title,fn){
-    if(lat==null||lng==null||!Number.isFinite(Number(lat))||!Number.isFinite(Number(lng)))return;
-    const m=L.marker([Number(lat),Number(lng)]).addTo(map).bindPopup(escapeHtml(title||'장소'));
+    if(!validCoords(lat,lng))return;
+    const a=Number(lat), b=Number(lng);
+    const m=L.marker([a,b]).addTo(map).bindPopup(popupHtml(title,a,b));
     if(fn)m.on('click',fn); list.push(m);
   }
   function initMaps(){
@@ -48,7 +61,7 @@
 
       wishlistDraftMarker=L.marker(e.latlng)
         .addTo(wishlistMap)
-        .bindPopup(`<strong>저장할 위치</strong><br>${wishlistPoint.lat.toFixed(5)}, ${wishlistPoint.lng.toFixed(5)}`)
+        .bindPopup(popupHtml('저장할 위치',wishlistPoint.lat,wishlistPoint.lng))
         .openPopup();
 
       $('placeCoords').textContent=
@@ -68,7 +81,7 @@
 
       diaryDraftMarker=L.marker(e.latlng)
         .addTo(visitedMap)
-        .bindPopup(`<strong>방문 위치</strong><br>${diaryPoint.lat.toFixed(5)}, ${diaryPoint.lng.toFixed(5)}`)
+        .bindPopup(popupHtml('방문 위치',diaryPoint.lat,diaryPoint.lng))
         .openPopup();
 
       $('diaryCoords').textContent=
@@ -77,12 +90,15 @@
   }
   function updateTabletMapHeight(){
     const tablet=window.matchMedia('(min-width:701px) and (max-width:1100px)').matches;
-
     ['wishlistMap','visitedMap'].forEach(id=>{
       const el=$(id);
-      if(el) el.style.height=tablet?'400px':'';
+      if(el) el.style.height=tablet?'min(62vh, 560px)':'';
     });
-
+    if(tablet){
+      document.documentElement.classList.add('tablet-layout');
+    }else{
+      document.documentElement.classList.remove('tablet-layout');
+    }
     wishlistMap?.invalidateSize();
     visitedMap?.invalidateSize();
   }
@@ -267,13 +283,18 @@
 
   function renderAll(){renderWishlist();renderDiaries();renderNotes();renderBuckets();renderCalendar();}
   function openPlace(p){
-    $('detailContent').innerHTML=`<p class="eyebrow">MY PLACE</p><h2>${escapeHtml(p.name)}</h2><p class="detail-text">${escapeHtml(p.note||'메모 없음')}</p><p>${tagsHtml(p.tags)}</p><div class="card-actions"><button id="detailRoute" class="button primary">길찾기</button></div>`;
-    $('detailDialog').showModal();$('detailRoute').onclick=()=>window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${p.lat},${p.lng}`)}`,'_blank','noopener');
+    $('detailContent').innerHTML=`<p class="eyebrow">MY PLACE</p><h2>${escapeHtml(p.name)}</h2><p class="detail-text">${escapeHtml(p.note||'메모 없음')}</p><p>${tagsHtml(p.tags)}</p><div class="card-actions">${validCoords(p.lat,p.lng)?'<button id="detailRoute" class="button primary">길찾기</button>':''}</div>`;
+    $('detailDialog').showModal();
+    if(validCoords(p.lat,p.lng)) $('detailRoute').onclick=()=>window.open(routeUrl(p.lat,p.lng),'_blank','noopener');
   }
-  function openDiary(d){$('detailContent').innerHTML=`<p class="eyebrow">TRAVEL DIARY · ${escapeHtml(d.visited_on)}</p><h2>${escapeHtml(d.place_name)}</h2>${d.photo_signed?`<img class="detail-photo" src="${escapeHtml(d.photo_signed)}" alt="방문 사진">`:''}<p class="detail-text">${escapeHtml(d.body||'')}</p><p>${tagsHtml(d.tags)}</p>`;$('detailDialog').showModal();}
+  function openDiary(d){
+    $('detailContent').innerHTML=`<p class="eyebrow">TRAVEL DIARY · ${escapeHtml(d.visited_on)}</p><h2>${escapeHtml(d.place_name)}</h2>${d.photo_signed?`<img class="detail-photo" src="${escapeHtml(d.photo_signed)}" alt="방문 사진">`:''}<p class="detail-text">${escapeHtml(d.body||'')}</p><p>${tagsHtml(d.tags)}</p><div class="card-actions">${validCoords(d.lat,d.lng)?'<button id="detailRoute" class="button primary">길찾기</button>':''}</div>`;
+    $('detailDialog').showModal();
+    if(validCoords(d.lat,d.lng)) $('detailRoute').onclick=()=>window.open(routeUrl(d.lat,d.lng),'_blank','noopener');
+  }
   function openCatalog(s){
     $('detailContent').innerHTML=`<p class="eyebrow">PHOTO SPOT · ${escapeHtml(s.region)}</p><h2>${escapeHtml(s.name)}</h2><p class="detail-text">${escapeHtml(s.description)}</p><p>${tagsHtml(s.tags)}</p><div class="card-actions"><button id="detailSave" class="button primary">가고 싶은 곳에 저장</button><button id="detailRoute" class="button secondary">길찾기</button></div>`;
-    $('detailDialog').showModal();$('detailSave').onclick=()=>saveCatalog(s);$('detailRoute').onclick=()=>window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${s.lat},${s.lng}`)}`,'_blank','noopener');
+    $('detailDialog').showModal();$('detailSave').onclick=()=>saveCatalog(s);$('detailRoute').onclick=()=>{if(validCoords(s.lat,s.lng))window.open(routeUrl(s.lat,s.lng),'_blank','noopener');else toast('이 장소에는 지도 좌표가 없어요.');};
   }
   async function saveCatalog(s){
     if(!requireLogin())return;
@@ -342,7 +363,26 @@
     }catch(err){if(photoPath)await sb.storage.from(DIARY_BUCKET).remove([photoPath]);toast('일기 저장 실패: '+err.message);}
   }
   async function deleteDiary(id){if(!confirm('이 일기를 삭제할까요?'))return;const d=diaries.find(x=>x.id===id);const {error}=await sb.from('diary_entries').delete().eq('id',id).eq('user_id',user.id);if(error){toast(error.message);return;}if(d?.photo_path)await sb.storage.from(DIARY_BUCKET).remove([d.photo_path]);await loadPrivateData();}
-  function showOnMap(map,lat,lng){if(lat!=null&&lng!=null){map.setView([lat,lng],15);}}
+  let wishlistFocusMarker=null, visitedFocusMarker=null;
+  function showOnMap(map,lat,lng,title,list){
+    if(!validCoords(lat,lng)){toast('이 장소에는 유효한 지도 좌표가 없어요.');return;}
+    switchTab('map');
+    const a=Number(lat), b=Number(lng);
+    setTimeout(()=>{
+      map.invalidateSize();
+      map.flyTo([a,b],16,{duration:0.45});
+      const existing=(list||[]).find(m=>{
+        const p=m.getLatLng();
+        return Math.abs(p.lat-a)<0.000001&&Math.abs(p.lng-b)<0.000001;
+      });
+      if(existing){existing.openPopup();return;}
+      const isWishlist=map===wishlistMap;
+      const old=isWishlist?wishlistFocusMarker:visitedFocusMarker;
+      if(old)map.removeLayer(old);
+      const selected=L.marker([a,b]).addTo(map).bindPopup(popupHtml(title||'선택한 장소',a,b)).openPopup();
+      if(isWishlist)wishlistFocusMarker=selected;else visitedFocusMarker=selected;
+    },120);
+  }
   document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
   $('authOpen').onclick=()=>$('authDialog').showModal();$('signInBtn').onclick=()=>authAction('signin');$('signUpBtn').onclick=()=>authAction('signup');
   $('logoutBtn').onclick=async()=>{if(sb){await sb.auth.signOut();await authRefresh();await loadPrivateData();toast('로그아웃했어요.');}};
@@ -353,8 +393,8 @@
     const t=e.target.closest('[data-visit],[data-deleteplace],[data-showplace],[data-showdiary],[data-deletediary],[data-savecatalog],[data-savelive]');if(!t)return;
     if(t.dataset.visit)markVisited(t.dataset.visit);
     if(t.dataset.deleteplace)deletePlace(t.dataset.deleteplace);
-    if(t.dataset.showplace){const p=myPlaces.find(x=>x.id===t.dataset.showplace);if(p)showOnMap(wishlistMap,p.lat,p.lng);}
-    if(t.dataset.showdiary){const d=diaries.find(x=>x.id===t.dataset.showdiary);if(d){showOnMap(visitedMap,d.lat,d.lng);openDiary(d);}}
+    if(t.dataset.showplace){const p=myPlaces.find(x=>x.id===t.dataset.showplace);if(p)showOnMap(wishlistMap,p.lat,p.lng,p.name,wishlistMarkers);}
+    if(t.dataset.showdiary){const d=diaries.find(x=>x.id===t.dataset.showdiary);if(d){showOnMap(visitedMap,d.lat,d.lng,d.place_name,visitedMarkers);openDiary(d);}}
     if(t.dataset.deletediary)deleteDiary(t.dataset.deletediary);
     if(t.dataset.savecatalog){const s=catalog.find(x=>x.id===t.dataset.savecatalog);if(s)saveCatalog(s);}
     if(t.dataset.savelive){const s=liveCatalog.find(x=>x.id===t.dataset.savelive);if(s)saveCatalog(s);}
@@ -368,31 +408,75 @@
   document.querySelectorAll('[data-bucket-filter]').forEach(b=>b.onclick=()=>{bucketFilter=b.dataset.bucketFilter;document.querySelectorAll('[data-bucket-filter]').forEach(x=>x.classList.toggle('active',x===b));renderBuckets();});
   document.addEventListener('click',e=>{const t=e.target.closest('[data-selectdate],[data-calendar-month],[data-calendar-year],[data-deletenote],[data-deletebucket],[data-deleteevent]');if(!t)return;if(t.dataset.selectdate){selectedCalendarDate=t.dataset.selectdate;renderCalendar();}if(t.dataset.calendarMonth!==undefined){calendarCursor.setMonth(Number(t.dataset.calendarMonth));calendarPickerMode='calendar';renderCalendar();}if(t.dataset.calendarYear){calendarCursor.setFullYear(Number(t.dataset.calendarYear));calendarPickerMode='month';renderCalendar();}if(t.dataset.deletenote)deleteOwned('travel_notes',t.dataset.deletenote);if(t.dataset.deletebucket)deleteOwned('travel_buckets',t.dataset.deletebucket);if(t.dataset.deleteevent)deleteOwned('travel_events',t.dataset.deleteevent);});
   document.addEventListener('change',e=>{const t=e.target.closest('[data-togglebucket]');if(t)toggleBucket(t.dataset.togglebucket,t.checked);});
-  // 모바일 키보드가 입력창을 가리지 않도록 입력 요소와 대화상자를 조정합니다.
+  // 모바일 키보드가 입력창을 가리지 않도록 대화상자와 입력 위치를 조정합니다.
   function keepInputVisible(target){
     if(!target || !target.matches('input, textarea, select, [contenteditable="true"]')) return;
-
     const updatePosition=()=>{
+      const vv=window.visualViewport;
       const dialog=target.closest('dialog');
-      if(dialog && window.visualViewport){
-        dialog.style.maxHeight=Math.max(220,window.visualViewport.height-24)+'px';
+      if(dialog && vv){
+        dialog.style.position='fixed';
+        dialog.style.top=Math.max(8,vv.offsetTop+8)+'px';
+        dialog.style.left='50%';
+        dialog.style.transform='translateX(-50%)';
+        dialog.style.margin='0';
+        dialog.style.maxHeight=Math.max(180,vv.height-16)+'px';
         dialog.style.overflowY='auto';
         dialog.style.webkitOverflowScrolling='touch';
+        dialog.style.boxSizing='border-box';
+        dialog.style.width='min(94vw, 620px)';
       }
-      target.scrollIntoView({behavior:'smooth',block:'center',inline:'nearest'});
+      target.scrollIntoView({behavior:'auto',block:'center',inline:'nearest'});
+      if(dialog){
+        const r=target.getBoundingClientRect(), d=dialog.getBoundingClientRect();
+        if(r.bottom>d.bottom-18 || r.top<d.top+18){
+          dialog.scrollTop += (r.bottom>d.bottom-18 ? r.bottom-d.bottom+28 : r.top-d.top-28);
+        }
+      }
     };
-
-    setTimeout(updatePosition,120);
-    setTimeout(updatePosition,350);
-    setTimeout(updatePosition,650);
+    requestAnimationFrame(updatePosition);
+    setTimeout(updatePosition,180);
+    setTimeout(updatePosition,420);
   }
-
   document.addEventListener('focusin',e=>keepInputVisible(e.target));
-
+  document.addEventListener('focusout',e=>{
+    const dialog=e.target.closest('dialog');
+    if(dialog && !dialog.querySelector(':focus')){
+      setTimeout(()=>{
+        dialog.style.position='';
+        dialog.style.top='';
+        dialog.style.left='';
+        dialog.style.transform='';
+        dialog.style.margin='';
+        dialog.style.maxHeight='';
+        dialog.style.overflowY='';
+        dialog.style.width='';
+      },180);
+    }
+  });
   if(window.visualViewport){
     window.visualViewport.addEventListener('resize',()=>keepInputVisible(document.activeElement));
     window.visualViewport.addEventListener('scroll',()=>keepInputVisible(document.activeElement));
   }
+  const responsiveStyle=document.createElement('style');
+  responsiveStyle.textContent=`
+    @media (min-width:701px) and (max-width:1100px){
+      body{font-size:17px}
+      .view{padding:clamp(18px,3vw,32px)}
+      #wishlistMap,#visitedMap{min-height:420px}
+      .calendar-day{min-height:78px;font-size:18px}
+      .calendar-weekday{font-size:15px;padding:10px 2px}
+      .calendar-day span{font-size:19px}
+      .calendar-pick{min-height:68px;font-size:17px}
+      .place-card,.diary-card,.note-card,.bucket-card{padding:18px}
+      button,.button,input,textarea,select{font-size:16px}
+    }
+    @media (max-width:700px){
+      dialog{max-width:94vw}
+      dialog form{max-height:calc(100dvh - 24px);overflow-y:auto}
+    }
+  `;
+  document.head.appendChild(responsiveStyle);
 
   initMaps();
   updateTabletMapHeight();
