@@ -604,7 +604,7 @@
         </select>
       </div>
       <div class="settings-theme-row" id="settingsInstallRow" style="display:flex;">
-        <label>스마트폰 앱으로 설치</label>
+        <label>스마트폰 앱으로 설치 방법</label>
         <button type="button" class="settings-install" id="settingsInstallBtn">앱 설치하기</button>
       </div>
       <p><strong>초기화되는 데이터</strong><br>가고 싶은 곳, 다녀온 곳, 방문 일기와 사진, 메모, 버킷리스트, 일정</p>
